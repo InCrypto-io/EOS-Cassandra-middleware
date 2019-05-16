@@ -15,15 +15,19 @@ type ErrorResult struct {
 }
 
 
+func writeErrorResponse(writer http.ResponseWriter, status int, message string) {
+	writer.WriteHeader(status)
+	response := ErrorResult { Code: status, Message: message }
+	json.NewEncoder(writer).Encode(response)
+}
+
 func onlyGetOrPost(h http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodPost {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			response := ErrorResult { Code: http.StatusMethodNotAllowed, Message: "Invalid request method." }
-			json.NewEncoder(w).Encode(response)
+	return func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet && request.Method != http.MethodPost {
+			writeErrorResponse(writer, http.StatusMethodNotAllowed, "Invalid request method.")
 			return
 		}
-		h(w, r)
+		h(writer, request)
 	}
 }
 
