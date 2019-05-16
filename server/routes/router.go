@@ -36,13 +36,16 @@ type Router struct {
 
 
 func NewRouter() *Router {
-	handler := http.NewServeMux() //TODO: replace empty handlers with real ones
-	handler.HandleFunc(ApiPath + "get_actions", onlyGetOrPost(func(writer http.ResponseWriter, request *http.Request) {}))
-	handler.HandleFunc(ApiPath + "get_transaction", onlyGetOrPost(func(writer http.ResponseWriter, request *http.Request) {}))
-	handler.HandleFunc(ApiPath + "get_key_accounts", onlyGetOrPost(func(writer http.ResponseWriter, request *http.Request) {}))
-	handler.HandleFunc(ApiPath + "get_controlled_accounts", onlyGetOrPost(func(writer http.ResponseWriter, request *http.Request) {}))
-
 	var hs storage.IHistoryStorage //TODO: init
 
-	return &Router{ ServeMux: *handler, historyStorage: hs }
+	router := Router{ historyStorage: hs }
+
+	handler := http.NewServeMux()
+	handler.HandleFunc(ApiPath + "get_actions", onlyGetOrPost(router.handleGetActions()))
+	handler.HandleFunc(ApiPath + "get_transaction", onlyGetOrPost(router.handleGetTransaction()))
+	handler.HandleFunc(ApiPath + "get_key_accounts", onlyGetOrPost(router.handleGetKeyAccounts()))
+	handler.HandleFunc(ApiPath + "get_controlled_accounts", onlyGetOrPost(router.handleGetControlledAccounts()))
+	router.ServeMux = *handler
+
+	return &router
 }
