@@ -35,8 +35,7 @@ type Router struct {
 }
 
 
-func NewRouter() *Router {
-	var hs storage.IHistoryStorage //TODO: init
+func NewRouter(hs storage.IHistoryStorage) *Router {
 
 	router := Router{ historyStorage: hs }
 
