@@ -32,7 +32,8 @@ func main() {
 	}
 	file.Close()
 
-	var hs storage.IHistoryStorage //TODO: init
+	var hs storage.IHistoryStorage
+	hs = storage.NewMockedCassandraHistoryStorage(322)
 	router := routes.NewRouter(hs)
 	address := ":" + strconv.FormatUint(uint64(config.Port), 10)
 	s := http.Server{ Addr: address, Handler: router }
