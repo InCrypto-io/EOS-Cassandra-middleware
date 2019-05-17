@@ -5,8 +5,47 @@ type GetActionArgs struct {
 	AccountName string `json:"account_name"`
 	Pos         *int64 `json:"pos"`
 	Offset      *int64 `json:"offset"`
-	//TODO: additional params
 }
+
+// Normalize() initializes Pos and Offset with default values if not set
+// returns position in account history, count of actions to get and order of history (true=asc, false=desc)
+func (args *GetActionArgs) Normalize() (int64, int64, bool) {
+	if args.Pos == nil {
+		args.Pos = new(int64)
+		*args.Pos = -1
+	}
+	if args.Offset == nil {
+		args.Offset = new(int64)
+		*args.Offset = -20
+	}
+	order := true
+	pos := *args.Pos
+	count := *args.Offset
+	if pos == -1 {
+		order = false
+		if count >= 0 {
+			pos -= count
+			count += 1
+		} else {
+			count = -(count - 1)
+		}
+	} else {
+		if count >= 0 {
+			count += 1
+		} else {
+			pos += count
+			count = -(count - 1)
+		}
+	}
+	if pos + count <= 0 {
+		return 0, 0, order
+	} else if pos < 0 {
+		count += pos
+		pos = 0
+	}
+	return pos, count, order
+}
+
 
 type Action struct {
 	GlobalActionSeq interface{} `json:"global_action_seq"`
