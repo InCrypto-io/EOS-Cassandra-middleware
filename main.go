@@ -2,7 +2,7 @@ package main
 
 import (
 	"EOS-Cassandra-middleware/routes"
-	"EOS-Cassandra-middleware/storage"
+	"EOS-Cassandra-middleware/storage/cassandra_storage"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -32,8 +32,12 @@ func main() {
 	}
 	file.Close()
 
-	var hs storage.IHistoryStorage
-	hs = storage.NewMockedCassandraHistoryStorage(322)
+	hs, err := cassandra_storage.NewCassandraStorage("46.4.120.177", "eos_history")
+	if err != nil {
+		log.Println("Failed to create history storage object: " + err.Error())
+		return
+	}
+	defer hs.Close()
 	router := routes.NewRouter(hs)
 	address := ":" + strconv.FormatUint(uint64(config.Port), 10)
 	s := http.Server{ Addr: address, Handler: router }
