@@ -307,10 +307,10 @@ func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
 	query := fmt.Sprintf("SELECT block_num FROM %s WHERE part_key=0", TableLib)
 
 	var lib uint64
-	iterable := cs.Session.Query(query).Iter()
-	if !iterable.Scan(&lib) {
-		log.Println("Failed to get last irreversible block")
-		return 0, errors.New("Failed to get last irreversible block") //TODO: change error message
+	if err := cs.Session.Query(query).Scan(&lib); err != nil {
+		err = fmt.Errorf("Failed to get last irreversible block: " + err.Error())
+		log.Println(err.Error())
+		return 0, err
 	}
 	return lib, nil
 }
