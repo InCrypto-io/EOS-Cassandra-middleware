@@ -93,20 +93,43 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	if count == 0 {
 		return result, nil
 	}
-	shardRecords, err := cs.getAccountShards(args.AccountName, TimestampRange{}, order, countShards(pos, count, order))
+	shardRecords, err := cs.getAccountShards(args.AccountName, TimestampRange{}, order, 0)//countShards(pos, count, order))
 	if err != nil {
 		return result, err
+	}
+	totalShards := len(shardRecords)
+	if maxShards := countShards(pos, count, order); maxShards > int64(len(shardRecords)) {
+		shardRecords = shardRecords[:maxShards]
 	}
 	log.Println("shards: ", shardRecords)
 	shards := make([]Timestamp, len(shardRecords))
 	for i, shard := range shardRecords {
 		shards[i] = shard.ShardId
 	}
-	accountActionTraces, err := cs.getAccountActionTraces(args.AccountName, shards, TimestampRange{}, order, count)
+	accountActionTraces, err := cs.getAccountActionTraces(args.AccountName, shards, TimestampRange{}, order, pos, count)
 	if err != nil {
 		return result, err
 	}
 	log.Println("accountActionTraces: ", accountActionTraces)
+	if len(accountActionTraces) == 0 {
+		return result, nil
+	}
+	//This is needed only for reverse history request
+	lastTrace := &accountActionTraces[0]
+	lastShardTracesCount := uint64(0)
+	c, err := cs.countAccountActionTraces(args.AccountName, []Timestamp{ shards[0] }, NewTimestampExact(&lastTrace.BlockTime), lastTrace.GlobalSeq)
+	if err != nil {
+		return result, err
+	}
+	lastShardTracesCount += c
+	c, err = cs.countAccountActionTraces(args.AccountName, []Timestamp{ shards[0] }, NewTimestampRange(nil, false, &lastTrace.BlockTime, true), 0)
+	if err != nil {
+		return result, err
+	}
+	lastShardTracesCount += c
+	lastAccountSeq := lastShardTracesCount + (uint64(totalShards - 1) * uint64(TracesPerShard))
+	//============================================
+
 	globalSequences := make([]uint64, 0)
 	lastGlobalSeq := uint64(0)
 	for _, aat := range accountActionTraces {
@@ -127,7 +150,7 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	if len(actionTraces) == 0 {
 		return result, nil
 	}
-	for _, aat := range accountActionTraces {
+	for i, aat := range accountActionTraces {
 		var doc *ActionTraceDoc
 		if aat.Parent == nil {
 			id := 0
@@ -160,7 +183,13 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 			log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
 			continue
 		}
-		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], /*TODO: AccountActionSeq,*/
+		accountActionSeq := uint64(0)
+		if order {
+			accountActionSeq = uint64(pos) + uint64(i + 1)
+		} else {
+			accountActionSeq = lastAccountSeq - uint64(i)
+		}
+		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
 			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
 			ActionTrace: bytes }
 		result.Actions = append(result.Actions, action)
@@ -211,8 +240,17 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 
 
 //private
-func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Timestamp, blockTimeRange TimestampRange, order bool, limit int64) ([]AccountActionTraceRecord, error) {
+func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Timestamp, blockTimeRange Range, order bool, pos int64, limit int64) ([]AccountActionTraceRecord, error) {
 	records := make([]AccountActionTraceRecord, 0)
+	traceSkip := int64(0)
+	if order {
+		shardSkip := pos / int64(TracesPerShard)
+		if shardSkip > int64(len(shards)) {
+			return records, nil
+		}
+		shards = shards[shardSkip:]
+		traceSkip = pos % int64(TracesPerShard)
+	}
 	withLimit := limit > 0
 	orderStr := "ASC"
 	if !order {
@@ -223,7 +261,7 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 		rangeStr += "AND " + blockTimeRange.Format("block_time")
 	}
 	for _, shard := range shards {
-		query := fmt.Sprintf("SELECT * FROM %s WHERE account_name='%s' and shard_id='%s' %s ORDER BY block_time %s, global_seq %s ",
+		query := fmt.Sprintf("SELECT * FROM %s WHERE account_name='%s' AND shard_id='%s' %s ORDER BY block_time %s, global_seq %s ",
 			TableAccountActionTrace, account, shard.String(), rangeStr, orderStr, orderStr)
 		if withLimit {
 			query += fmt.Sprintf(" LIMIT %d", limit)
@@ -232,8 +270,12 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 		var r AccountActionTraceRecord
 		iter := cs.Session.Query(query).Iter()
 		for !withLimit || (limit > 0 && iter.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent)) {
-			records = append(records, r)
-			limit -= 1
+			if traceSkip > 0 {
+				traceSkip -= 1
+			} else {
+				records = append(records, r)
+				limit -= 1
+			}
 		}
 		if err := iter.Close(); err != nil {
 			err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
@@ -247,7 +289,7 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 	return records, nil
 }
 
-func (cs *CassandraStorage) getAccountShards(account string, shardRange TimestampRange, order bool, limit int64) ([]AccountActionTraceShardRecord, error) {
+func (cs *CassandraStorage) getAccountShards(account string, shardRange Range, order bool, limit int64) ([]AccountActionTraceShardRecord, error) {
 	records := make([]AccountActionTraceShardRecord, 0)
 	orderStr := "ASC"
 	if !order {
@@ -328,4 +370,28 @@ func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
 		return 0, err
 	}
 	return lib, nil
+}
+
+func (cs *CassandraStorage) countAccountActionTraces(account string, shards []Timestamp, blockTimeRange Range, top uint64) (uint64, error) {
+	count := uint64(0)
+	rangeStr := ""
+	if !blockTimeRange.IsEmpty() {
+		rangeStr += "AND " + blockTimeRange.Format("block_time")
+	}
+	var tmpCount uint64
+	for _, shard := range shards {
+		query := fmt.Sprintf("SELECT count(*) FROM %s WHERE account_name='%s' AND shard_id='%s' %s ",
+			TableAccountActionTrace, account, shard.String(), rangeStr)
+		if top != 0 {
+			query += fmt.Sprintf(" AND global_seq <= %d ", top)
+		}
+		fmt.Println("Query: ", query)
+		if err := cs.Session.Query(query).Scan(&tmpCount); err != nil {
+			err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+			log.Println("Error from countAccountActionTraces: " + err.Error())
+			return 0, err
+		}
+		count += tmpCount
+	}
+	return count, nil
 }
