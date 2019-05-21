@@ -93,7 +93,10 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	if count == 0 {
 		return result, nil
 	}
-	shardRecords := cs.getAccountShards(args.AccountName, TimestampRange{}, order, countShards(pos, count, order))
+	shardRecords, err := cs.getAccountShards(args.AccountName, TimestampRange{}, order, countShards(pos, count, order))
+	if err != nil {
+		return result, err
+	}
 	log.Println("shards: ", shardRecords)
 	shards := make([]Timestamp, len(shardRecords))
 	for i, shard := range shardRecords {
@@ -243,7 +246,7 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 	return records, nil
 }
 
-func (cs *CassandraStorage) getAccountShards(account string, shardRange TimestampRange, order bool, limit int64) []AccountActionTraceShardRecord {
+func (cs *CassandraStorage) getAccountShards(account string, shardRange TimestampRange, order bool, limit int64) ([]AccountActionTraceShardRecord, error) {
 	records := make([]AccountActionTraceShardRecord, 0)
 	orderStr := "ASC"
 	if !order {
@@ -264,9 +267,11 @@ func (cs *CassandraStorage) getAccountShards(account string, shardRange Timestam
 		records = append(records, r)
 	}
 	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
 		log.Println("Error from getAccountShards: " + err.Error())
+		return records, err
 	}
-	return records
+	return records, nil
 }
 
 func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool) ([]ActionTraceRecord, error) {
