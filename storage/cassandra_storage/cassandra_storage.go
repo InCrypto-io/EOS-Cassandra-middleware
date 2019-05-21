@@ -27,6 +27,8 @@ const (
 	TableTransactionTrace          = "transaction_trace"
 
 	TracesPerShard = 10000
+
+	TemplateErrorCassandraQueryFailed = "request to Cassandra failed: %s. Query: %s"
 )
 
 
@@ -97,7 +99,10 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	for i, shard := range shardRecords {
 		shards[i] = shard.ShardId
 	}
-	accountActionTraces := cs.getAccountActionTraces(args.AccountName, shards, TimestampRange{}, order, count)
+	accountActionTraces, err := cs.getAccountActionTraces(args.AccountName, shards, TimestampRange{}, order, count)
+	if err != nil {
+		return result, err
+	}
 	log.Println("accountActionTraces: ", accountActionTraces)
 	globalSequences := make([]uint64, 0)
 	lastGlobalSeq := uint64(0)
@@ -113,7 +118,7 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	}
 	actionTraces, err := cs.getActionTraces(globalSequences, order)
 	if err != nil {
-		return result, nil
+		return result, err
 	}
 	log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
 	if len(actionTraces) == 0 {
@@ -202,7 +207,7 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 
 
 //private
-func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Timestamp, blockTimeRange TimestampRange, order bool, limit int64) []AccountActionTraceRecord {
+func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Timestamp, blockTimeRange TimestampRange, order bool, limit int64) ([]AccountActionTraceRecord, error) {
 	records := make([]AccountActionTraceRecord, 0)
 	withLimit := limit > 0
 	orderStr := "ASC"
@@ -227,13 +232,15 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 			limit -= 1
 		}
 		if err := iter.Close(); err != nil {
+			err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
 			log.Println("Error from getAccountActionTraces: " + err.Error())
+			return records, err
 		}
 		if withLimit && limit == 0 {
 			break
 		}
 	}
-	return records
+	return records, nil
 }
 
 func (cs *CassandraStorage) getAccountShards(account string, shardRange TimestampRange, order bool, limit int64) []AccountActionTraceShardRecord {
@@ -286,8 +293,8 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool
 		records = append(records, r)
 	}
 	if err := iter.Close(); err != nil {
-		err = fmt.Errorf("Error from getActionTraces. Request to Cassandra failed: %s. Query: %s", err.Error(), query)
-		log.Println(err.Error())
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getActionTraces: " + err.Error())
 		return records, err
 	}
 	if len(globalSequences) != len(records) {
@@ -308,8 +315,8 @@ func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
 
 	var lib uint64
 	if err := cs.Session.Query(query).Scan(&lib); err != nil {
-		err = fmt.Errorf("Failed to get last irreversible block: " + err.Error())
-		log.Println(err.Error())
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getActionTraces: " + err.Error())
 		return 0, err
 	}
 	return lib, nil
