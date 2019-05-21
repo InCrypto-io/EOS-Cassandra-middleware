@@ -60,7 +60,7 @@ type CassandraStorage struct {
 func NewCassandraStorage(address string, keyspace string) (*CassandraStorage, error) {
 	cluster := gocql.NewCluster(address)
 	cluster.Keyspace       = keyspace
-	cluster.ConnectTimeout = 10 * time.Second
+	cluster.ConnectTimeout = 5 * time.Second
 	cluster.Timeout        = 10 * time.Second
 	s, err := cluster.CreateSession()
 	if err != nil {
@@ -165,8 +165,9 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 			ActionTrace: bytes }
 		result.Actions = append(result.Actions, action)
 	}
-
-	//TODO: make result
+	if len(result.Actions) != len(accountActionTraces) {
+		log.Println("Warning! Missing traces")
+	}
 	return result, nil
 }
 
@@ -296,6 +297,7 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool
 			continue
 		}
 		records = append(records, r)
+		r = ActionTraceRecord{}
 	}
 	if err := iter.Close(); err != nil {
 		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
@@ -305,6 +307,7 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool
 	if len(globalSequences) != len(records) {
 		log.Println("Warning! Not all traces found. Query: " + query) //TODO: log missing global_seq
 	}
+
 	sort.Slice(records, func(i, j int) bool {
 		if order {
 			return records[i].GlobalSeq < records[j].GlobalSeq

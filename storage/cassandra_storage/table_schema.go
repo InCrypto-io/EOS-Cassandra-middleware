@@ -1,7 +1,6 @@
 package cassandra_storage
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"strconv"
@@ -41,29 +40,24 @@ type ActionTraceRecord struct {
 
 
 type ActionTraceDoc struct {
-	Receipt          map[string]json.RawMessage `json:"receipt"`
-	Act              map[string]json.RawMessage `json:"act"`
-	ContextFree                     interface{} `json:"context_free"`
-	Elapsed                         interface{} `json:"elapsed"`
-	Console                         interface{} `json:"console"`
-	TrxId                           interface{} `json:"trx_id"`
-	BlockNum                        interface{} `json:"block_num"`
-	BlockTime                       interface{} `json:"block_time"`
-	ProducerBlockId                 interface{} `json:"producer_block_id"`
-	AccountRamDeltas                interface{} `json:"account_ram_deltas"`
-	Except                          interface{} `json:"except"`
-	InlineTraces               []ActionTraceDoc `json:"inline_traces"`
+	Receipt          map[string]interface{} `json:"receipt"`
+	Act              map[string]interface{} `json:"act"`
+	ContextFree                 interface{} `json:"context_free"`
+	Elapsed                     interface{} `json:"elapsed"`
+	Console                     interface{} `json:"console"`
+	TrxId                       interface{} `json:"trx_id"`
+	BlockNum                    interface{} `json:"block_num"`
+	BlockTime                   interface{} `json:"block_time"`
+	ProducerBlockId             interface{} `json:"producer_block_id"`
+	AccountRamDeltas            interface{} `json:"account_ram_deltas"`
+	Except                      interface{} `json:"except"`
+	InlineTraces           []ActionTraceDoc `json:"inline_traces"`
 }
 
 func (doc *ActionTraceDoc) GetTrace(target uint64) *ActionTraceDoc {
-	var gs interface{}
-	err := json.Unmarshal(doc.Receipt["global_sequence"], &gs)
-	if err != nil {
-		log.Println("Unexpected Unmarshall error. " + err.Error())
-		return nil
-	}
-	if ui, ok := gs.(uint64); ok {
-		if ui == target {
+	gs := doc.Receipt["global_sequence"]
+	if ui, ok := gs.(float64); ok {
+		if uint64(ui) == target {
 			return doc
 		}
 	} else if s, ok := gs.(string); ok {
@@ -74,6 +68,8 @@ func (doc *ActionTraceDoc) GetTrace(target uint64) *ActionTraceDoc {
 		if ui == target {
 			return doc
 		}
+	} else {
+		log.Println("unexpected type: global_seq")
 	}
 
 	for _, inline := range doc.InlineTraces {
