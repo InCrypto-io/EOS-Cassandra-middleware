@@ -1,5 +1,7 @@
 package storage
 
+import "encoding/json"
+
 //get_actions
 type GetActionArgs struct {
 	AccountName string `json:"account_name"`
@@ -48,8 +50,11 @@ func (args *GetActionArgs) Normalize() (int64, int64, bool) {
 
 
 type Action struct {
-	GlobalActionSeq interface{} `json:"global_action_seq"`
-	// TODO...
+	GlobalActionSeq  json.RawMessage `json:"global_action_seq"`
+	AccountActionSeq json.RawMessage `json:"account_action_seq"`
+	BlockNum             interface{} `json:"block_num"`
+	BlockTime            interface{} `json:"block_time"`
+	ActionTrace      json.RawMessage `json:"action_trace"`
 }
 type GetActionsResult struct {
 	Actions               []Action `json:"actions"`

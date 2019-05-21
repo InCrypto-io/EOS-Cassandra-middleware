@@ -2,10 +2,13 @@ package cassandra_storage
 
 import (
 	"EOS-Cassandra-middleware/storage"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/gocql/gocql"
 	"log"
+	"sort"
+	"strconv"
 )
 
 const (
@@ -85,16 +88,71 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	if count == 0 {
 		return result, nil
 	}
-	//create empty range
 	shardRecords := cs.getAccountShards(args.AccountName, TimestampRange{}, order, countShards(pos, count, order))
 	log.Println("shards: ", shardRecords)
 	shards := make([]Timestamp, len(shardRecords))
 	for i, shard := range shardRecords {
 		shards[i] = shard.ShardId
 	}
-	actionTraces := cs.getAccountActionTraces(args.AccountName, shards, TimestampRange{}, order, count)
-	log.Println("actionTraces: ", actionTraces)
-	//TODO: make request to cassandra
+	accountActionTraces := cs.getAccountActionTraces(args.AccountName, shards, TimestampRange{}, order, count)
+	log.Println("accountActionTraces: ", accountActionTraces)
+	globalSequences := make([]uint64, 0)
+	lastGlobalSeq := uint64(0)
+	for _, aat := range accountActionTraces {
+		gs := aat.GlobalSeq
+		if aat.Parent != nil {
+			gs = *aat.Parent
+		}
+		if gs != lastGlobalSeq {
+			globalSequences = append(globalSequences, gs)
+			lastGlobalSeq = gs
+		}
+	}
+	actionTraces := cs.getActionTraces(globalSequences, order)
+	log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
+	if len(actionTraces) == 0 {
+		return result, nil
+	}
+	for _, aat := range accountActionTraces {
+		var doc *ActionTraceDoc
+		if aat.Parent == nil {
+			id := 0
+			for i, at := range actionTraces {
+				if aat.GlobalSeq == at.GlobalSeq {
+					id = i
+					doc = &at.Doc
+					break
+				}
+			}
+			actionTraces = actionTraces[id:]
+		} else {
+			id := 0
+			for i, at := range actionTraces {
+				if inline := at.Doc.GetTrace(aat.GlobalSeq); inline != nil {
+					id = i
+					doc = inline
+					break
+				}
+			}
+			actionTraces = actionTraces[id:]
+		}
+		if doc == nil {
+			log.Println(fmt.Sprintf("Action trace %d not found", aat.GlobalSeq))
+			continue
+		}
+
+		bytes, err := json.Marshal(doc)
+		if err != nil {
+			log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
+			continue
+		}
+		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], /*TODO: AccountActionSeq,*/
+			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+			ActionTrace: bytes }
+		result.Actions = append(result.Actions, action)
+	}
+
+	//TODO: make result
 	return result, nil
 }
 
@@ -157,28 +215,19 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 		}
 		fmt.Println("Query: ", query)
 		var r AccountActionTraceRecord
-		iterable := cs.Session.Query(query).Iter()
-		for !withLimit || (limit > 0 && iterable.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent)) {
+		iter := cs.Session.Query(query).Iter()
+		for !withLimit || (limit > 0 && iter.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent)) {
 			records = append(records, r)
 			limit -= 1
+		}
+		if err := iter.Close(); err != nil {
+			log.Println("Error from getAccountActionTraces: " + err.Error())
 		}
 		if withLimit && limit == 0 {
 			break
 		}
 	}
 	return records
-}
-
-func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
-	query := fmt.Sprintf("SELECT block_num FROM %s WHERE part_key=0", TableLib)
-
-	var lib uint64
-	iterable := cs.Session.Query(query).Iter()
-	if !iterable.Scan(&lib) {
-		log.Println("Failed to get last irreversible block")
-		return 0, errors.New("Failed to get last irreversible block") //TODO: change error message
-	}
-	return lib, nil
 }
 
 func (cs *CassandraStorage) getAccountShards(account string, shardRange TimestampRange, order bool, limit int64) []AccountActionTraceShardRecord {
@@ -197,9 +246,63 @@ func (cs *CassandraStorage) getAccountShards(account string, shardRange Timestam
 	}
 	fmt.Println("Query: ", query)
 	var r AccountActionTraceShardRecord
-	iterable := cs.Session.Query(query).Iter()
-	for iterable.Scan(&r.ShardId.Time) {
+	iter := cs.Session.Query(query).Iter()
+	for iter.Scan(&r.ShardId.Time) {
 		records = append(records, r)
 	}
+	if err := iter.Close(); err != nil {
+		log.Println("Error from getAccountShards: " + err.Error())
+	}
 	return records
+}
+
+func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool) []ActionTraceRecord {
+	records := make([]ActionTraceRecord, 0)
+	if len(globalSequences) == 0 {
+		return records
+	}
+	inClause := " global_seq IN ("
+	for _, gs := range globalSequences[:len(globalSequences)-1] {
+		inClause += strconv.FormatUint(gs, 10) + ", "
+	}
+	inClause += strconv.FormatUint(globalSequences[len(globalSequences)-1], 10) + ")"
+	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", TableActionTrace, inClause)
+	fmt.Println("Query: ", query)
+	var r ActionTraceRecord
+	var doc string
+	iter := cs.Session.Query(query).Iter()
+	for iter.Scan(&r.GlobalSeq, &doc, &r.Parent) {
+		err := json.Unmarshal([]byte(doc), &r.Doc)
+		if err != nil {
+			log.Println(fmt.Sprintf("Failed to unmarshal %s. Error: %s", doc, err.Error()))
+			continue
+		}
+		records = append(records, r)
+	}
+	if err := iter.Close(); err != nil {
+		log.Println("Error from getActionTraces: " + err.Error())
+	}
+	if len(globalSequences) != len(records) {
+		log.Println("Warning! Not all traces found") //TODO: log missing global_seq
+	}
+	sort.Slice(records, func(i, j int) bool {
+		if order {
+			return records[i].GlobalSeq < records[j].GlobalSeq
+		} else {
+			return records[j].GlobalSeq < records[i].GlobalSeq
+		}
+	})
+	return records
+}
+
+func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
+	query := fmt.Sprintf("SELECT block_num FROM %s WHERE part_key=0", TableLib)
+
+	var lib uint64
+	iterable := cs.Session.Query(query).Iter()
+	if !iterable.Scan(&lib) {
+		log.Println("Failed to get last irreversible block")
+		return 0, errors.New("Failed to get last irreversible block") //TODO: change error message
+	}
+	return lib, nil
 }
