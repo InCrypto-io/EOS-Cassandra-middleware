@@ -9,6 +9,7 @@ import (
 	"log"
 	"sort"
 	"strconv"
+	"time"
 )
 
 const (
@@ -56,7 +57,9 @@ type CassandraStorage struct {
 
 func NewCassandraStorage(address string, keyspace string) (*CassandraStorage, error) {
 	cluster := gocql.NewCluster(address)
-	cluster.Keyspace = keyspace
+	cluster.Keyspace       = keyspace
+	cluster.ConnectTimeout = 10 * time.Second
+	cluster.Timeout        = 10 * time.Second
 	s, err := cluster.CreateSession()
 	if err != nil {
 		return nil, err
@@ -108,7 +111,10 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 			lastGlobalSeq = gs
 		}
 	}
-	actionTraces := cs.getActionTraces(globalSequences, order)
+	actionTraces, err := cs.getActionTraces(globalSequences, order)
+	if err != nil {
+		return result, nil
+	}
 	log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
 	if len(actionTraces) == 0 {
 		return result, nil
@@ -256,10 +262,10 @@ func (cs *CassandraStorage) getAccountShards(account string, shardRange Timestam
 	return records
 }
 
-func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool) []ActionTraceRecord {
+func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool) ([]ActionTraceRecord, error) {
 	records := make([]ActionTraceRecord, 0)
 	if len(globalSequences) == 0 {
-		return records
+		return records, nil
 	}
 	inClause := " global_seq IN ("
 	for _, gs := range globalSequences[:len(globalSequences)-1] {
@@ -274,16 +280,18 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool
 	for iter.Scan(&r.GlobalSeq, &doc, &r.Parent) {
 		err := json.Unmarshal([]byte(doc), &r.Doc)
 		if err != nil {
-			log.Println(fmt.Sprintf("Failed to unmarshal %s. Error: %s", doc, err.Error()))
+			log.Println(fmt.Sprintf("Error from getActionTraces. Failed to unmarshal action_trace %s: %s", doc, err.Error()))
 			continue
 		}
 		records = append(records, r)
 	}
 	if err := iter.Close(); err != nil {
-		log.Println("Error from getActionTraces: " + err.Error())
+		err = fmt.Errorf("Error from getActionTraces. Request to Cassandra failed: %s. Query: %s", err.Error(), query)
+		log.Println(err.Error())
+		return records, err
 	}
 	if len(globalSequences) != len(records) {
-		log.Println("Warning! Not all traces found") //TODO: log missing global_seq
+		log.Println("Warning! Not all traces found. Query: " + query) //TODO: log missing global_seq
 	}
 	sort.Slice(records, func(i, j int) bool {
 		if order {
@@ -292,7 +300,7 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool
 			return records[j].GlobalSeq < records[i].GlobalSeq
 		}
 	})
-	return records
+	return records, nil
 }
 
 func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
