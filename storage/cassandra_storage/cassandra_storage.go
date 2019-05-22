@@ -130,6 +130,7 @@ func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (sto
 		return result, err
 	}
 	accounts = utility.Unique(accounts)
+	sort.Strings(accounts)
 	result.AccountNames = accounts
 	return result, nil
 }
