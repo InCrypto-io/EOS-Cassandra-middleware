@@ -2,6 +2,7 @@ package cassandra_storage
 
 import (
 	"EOS-Cassandra-middleware/storage"
+	"EOS-Cassandra-middleware/utility"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -124,7 +125,12 @@ func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (sto
 		return result, nil
 	}
 
-	//TODO: make request to cassandra
+	accounts, err := cs.getKeyAccounts(args.PublicKey)
+	if err != nil {
+		return result, err
+	}
+	accounts = utility.Unique(accounts)
+	result.AccountNames = accounts
 	return result, nil
 }
 
@@ -434,6 +440,23 @@ func (cs *CassandraStorage) getContainingActionTraces(accountActionTraces []Acco
 	}
 	actionTraces, err := cs.getActionTraces(globalSequences)
 	return actionTraces, err
+}
+
+func (cs *CassandraStorage) getKeyAccounts(key string) ([]string, error) {
+	query := fmt.Sprintf("SELECT name FROM %s WHERE key='%s'", TableAccountPublicKey, key)
+
+	accounts := make([]string, 0)
+	var account string
+	iter := cs.Session.Query(query).Iter()
+	for iter.Scan(&account) {
+		accounts = append(accounts, account)
+	}
+	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getKeyAccounts: " + err.Error())
+		return accounts, err
+	}
+	return accounts, nil
 }
 
 func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
