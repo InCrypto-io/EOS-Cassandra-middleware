@@ -2,6 +2,7 @@ package cassandra_storage
 
 import (
 	"EOS-Cassandra-middleware/storage"
+	"EOS-Cassandra-middleware/utility"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -135,7 +136,13 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 		return result, nil
 	}
 
-	//TODO: make request to cassandra
+	accounts, err := cs.getControlledAccounts(args.ControllingAccount)
+	if err != nil {
+		return result, err
+	}
+	accounts = utility.Unique(accounts)
+	sort.Strings(accounts)
+	result.ControlledAccounts = accounts
 	return result, nil
 }
 
@@ -434,6 +441,23 @@ func (cs *CassandraStorage) getContainingActionTraces(accountActionTraces []Acco
 	}
 	actionTraces, err := cs.getActionTraces(globalSequences)
 	return actionTraces, err
+}
+
+func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]string, error) {
+	query := fmt.Sprintf("SELECT name FROM %s WHERE controlling_name='%s'", TableAccountControllingAccount, controllingAccount)
+
+	accounts := make([]string, 0)
+	var account string
+	iter := cs.Session.Query(query).Iter()
+	for iter.Scan(&account) {
+		accounts = append(accounts, account)
+	}
+	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getControlledAccounts: " + err.Error())
+		return accounts, err
+	}
+	return accounts, nil
 }
 
 func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
