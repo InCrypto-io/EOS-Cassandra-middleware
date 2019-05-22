@@ -127,7 +127,7 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 		return result, err
 	}
 	lastShardTracesCount += c
-	lastAccountSeq := lastShardTracesCount + (uint64(totalShards - 1) * uint64(TracesPerShard))
+	lastAccountSeq := (lastShardTracesCount - 1) + (uint64(totalShards - 1) * uint64(TracesPerShard))
 	//============================================
 
 	globalSequences := make([]uint64, 0)
@@ -185,7 +185,7 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 		}
 		accountActionSeq := uint64(0)
 		if order {
-			accountActionSeq = uint64(pos) + uint64(i + 1)
+			accountActionSeq = uint64(pos) + uint64(i)
 		} else {
 			accountActionSeq = lastAccountSeq - uint64(i)
 		}
