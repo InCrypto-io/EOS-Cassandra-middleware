@@ -93,111 +93,12 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	if count == 0 {
 		return result, nil
 	}
-	shardRecords, err := cs.getAccountShards(args.AccountName, TimestampRange{}, order, 0)//countShards(pos, count, order))
-	if err != nil {
-		return result, err
+	if order {
+		result.Actions, err = cs.getAccountHistory(args.AccountName, pos, count)
+	} else {
+		result.Actions, err = cs.getAccountHistoryReverse(args.AccountName, pos, count)
 	}
-	totalShards := len(shardRecords)
-	if maxShards := countShards(pos, count, order); maxShards > int64(len(shardRecords)) {
-		shardRecords = shardRecords[:maxShards]
-	}
-	log.Println("shards: ", shardRecords)
-	shards := make([]Timestamp, len(shardRecords))
-	for i, shard := range shardRecords {
-		shards[i] = shard.ShardId
-	}
-	accountActionTraces, err := cs.getAccountActionTraces(args.AccountName, shards, TimestampRange{}, order, pos, count)
-	if err != nil {
-		return result, err
-	}
-	log.Println("accountActionTraces: ", accountActionTraces)
-	if len(accountActionTraces) == 0 {
-		return result, nil
-	}
-	//This is needed only for reverse history request
-	lastTrace := &accountActionTraces[0]
-	lastShardTracesCount := uint64(0)
-	c, err := cs.countAccountActionTraces(args.AccountName, []Timestamp{ shards[0] }, NewTimestampExact(&lastTrace.BlockTime), lastTrace.GlobalSeq)
-	if err != nil {
-		return result, err
-	}
-	lastShardTracesCount += c
-	c, err = cs.countAccountActionTraces(args.AccountName, []Timestamp{ shards[0] }, NewTimestampRange(nil, false, &lastTrace.BlockTime, true), 0)
-	if err != nil {
-		return result, err
-	}
-	lastShardTracesCount += c
-	lastAccountSeq := (lastShardTracesCount - 1) + (uint64(totalShards - 1) * uint64(TracesPerShard))
-	//============================================
-
-	globalSequences := make([]uint64, 0)
-	lastGlobalSeq := uint64(0)
-	for _, aat := range accountActionTraces {
-		gs := aat.GlobalSeq
-		if aat.Parent != nil {
-			gs = *aat.Parent
-		}
-		if gs != lastGlobalSeq {
-			globalSequences = append(globalSequences, gs)
-			lastGlobalSeq = gs
-		}
-	}
-	actionTraces, err := cs.getActionTraces(globalSequences, order)
-	if err != nil {
-		return result, err
-	}
-	log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
-	if len(actionTraces) == 0 {
-		return result, nil
-	}
-	for i, aat := range accountActionTraces {
-		var doc *ActionTraceDoc
-		if aat.Parent == nil {
-			id := 0
-			for i, at := range actionTraces {
-				if aat.GlobalSeq == at.GlobalSeq {
-					id = i
-					doc = &at.Doc
-					break
-				}
-			}
-			actionTraces = actionTraces[id:]
-		} else {
-			id := 0
-			for i, at := range actionTraces {
-				if inline := at.Doc.GetTrace(aat.GlobalSeq); inline != nil {
-					id = i
-					doc = inline
-					break
-				}
-			}
-			actionTraces = actionTraces[id:]
-		}
-		if doc == nil {
-			log.Println(fmt.Sprintf("Action trace %d not found", aat.GlobalSeq))
-			continue
-		}
-
-		bytes, err := json.Marshal(doc)
-		if err != nil {
-			log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
-			continue
-		}
-		accountActionSeq := uint64(0)
-		if order {
-			accountActionSeq = uint64(pos) + uint64(i)
-		} else {
-			accountActionSeq = lastAccountSeq - uint64(i)
-		}
-		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
-			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
-			ActionTrace: bytes }
-		result.Actions = append(result.Actions, action)
-	}
-	if len(result.Actions) != len(accountActionTraces) {
-		log.Println("Warning! Missing traces")
-	}
-	return result, nil
+	return result, err
 }
 
 func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (storage.GetTransactionResult, error) {
@@ -239,10 +140,176 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 }
 
 
+//getAccountHistory is a handler for get_actions request with pos != -1
+func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count int64) ([]storage.Action, error) {
+	result := make([]storage.Action, 0)
+	order := true
+	shardRecords, err := cs.getAccountShards(account, TimestampRange{}, order, countShards(pos, count, order))
+	if err != nil {
+		return result, err
+	}
+	log.Println("shards: ", shardRecords)
+	shards := make([]Timestamp, len(shardRecords))
+	for i, shard := range shardRecords {
+		shards[i] = shard.ShardId
+	}
+	accountActionTraces, err := cs.getAccountActionTraces(account, shards, TimestampRange{}, order, pos, count)
+	if err != nil {
+		return result, err
+	}
+	log.Println("accountActionTraces: ", accountActionTraces)
+	if len(accountActionTraces) == 0 {
+		return result, nil
+	}
+	actionTraces, err := cs.getContainingActionTraces(accountActionTraces)
+	if err != nil {
+		return result, err
+	}
+	sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
+	log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
+	if len(actionTraces) == 0 {
+		return result, nil
+	}
+	for i, aat := range accountActionTraces {
+		var doc *ActionTraceDoc
+		id := 0
+		if aat.Parent == nil {
+			for i, at := range actionTraces {
+				if aat.GlobalSeq == at.GlobalSeq {
+					id = i
+					doc = &at.Doc
+					break
+				}
+			}
+		} else {
+			for i, at := range actionTraces {
+				if inline := at.Doc.GetTrace(aat.GlobalSeq); inline != nil {
+					id = i
+					doc = inline
+					break
+				}
+			}
+		}
+		actionTraces = actionTraces[id:]
+		if doc == nil {
+			log.Println(fmt.Sprintf("Warning! Action trace %d not found", aat.GlobalSeq))
+			continue
+		}
+
+		bytes, err := json.Marshal(doc)
+		if err != nil {
+			log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
+			continue
+		}
+		accountActionSeq := uint64(pos) + uint64(i)
+		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
+			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+			ActionTrace: bytes }
+		result = append(result, action)
+	}
+	if len(result) != len(accountActionTraces) {
+		log.Println("Warning! Missing traces")
+	}
+	return result, nil
+}
+
+//getAccountHistory is a handler for get_actions request with pos == -1
+func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, count int64) ([]storage.Action, error) {
+	result := make([]storage.Action, 0)
+	order := false
+	shardRecords, err := cs.getAccountShards(account, TimestampRange{}, order, 0)
+	if err != nil {
+		return result, err
+	}
+	totalShards := len(shardRecords)
+	if maxShards := countShards(pos, count, order); maxShards > int64(len(shardRecords)) {
+		shardRecords = shardRecords[:maxShards]
+	}
+	log.Println("shards: ", shardRecords)
+	shards := make([]Timestamp, len(shardRecords))
+	for i, shard := range shardRecords {
+		shards[i] = shard.ShardId
+	}
+	accountActionTraces, err := cs.getAccountActionTraces(account, shards, TimestampRange{}, order, pos, count)
+	if err != nil {
+		return result, err
+	}
+	log.Println("accountActionTraces: ", accountActionTraces)
+	if len(accountActionTraces) == 0 {
+		return result, nil
+	}
+
+	lastTrace := &accountActionTraces[0]
+	lastShardTracesCount := uint64(0)
+	c, err := cs.countAccountActionTraces(account, []Timestamp{ shards[0] }, NewTimestampExact(&lastTrace.BlockTime), lastTrace.GlobalSeq)
+	if err != nil {
+		return result, err
+	}
+	lastShardTracesCount += c
+	c, err = cs.countAccountActionTraces(account, []Timestamp{ shards[0] }, NewTimestampRange(nil, false, &lastTrace.BlockTime, true), 0)
+	if err != nil {
+		return result, err
+	}
+	lastShardTracesCount += c
+	lastAccountSeq := (lastShardTracesCount - 1) + (uint64(totalShards - 1) * uint64(TracesPerShard))
+
+	actionTraces, err := cs.getContainingActionTraces(accountActionTraces)
+	if err != nil {
+		return result, err
+	}
+	sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
+	log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
+	if len(actionTraces) == 0 {
+		return result, nil
+	}
+	for i, aat := range accountActionTraces {
+		var doc *ActionTraceDoc
+		id := 0
+		if aat.Parent == nil {
+			for i, at := range actionTraces {
+				if aat.GlobalSeq == at.GlobalSeq {
+					id = i
+					doc = &at.Doc
+					break
+				}
+			}
+		} else {
+			for i, at := range actionTraces {
+				if inline := at.Doc.GetTrace(aat.GlobalSeq); inline != nil {
+					id = i
+					doc = inline
+					break
+				}
+			}
+		}
+		actionTraces = actionTraces[id:]
+		if doc == nil {
+			log.Println(fmt.Sprintf("Action trace %d not found", aat.GlobalSeq))
+			continue
+		}
+
+		bytes, err := json.Marshal(doc)
+		if err != nil {
+			log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
+			continue
+		}
+		accountActionSeq := lastAccountSeq - uint64(i)
+		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
+			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+			ActionTrace: bytes }
+		result = append(result, action)
+	}
+	if len(result) != len(accountActionTraces) {
+		log.Println("Warning! Missing traces")
+	}
+	return result, nil
+}
+
+
 //private
 func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Timestamp, blockTimeRange Range, order bool, pos int64, limit int64) ([]AccountActionTraceRecord, error) {
 	records := make([]AccountActionTraceRecord, 0)
-	traceSkip := int64(0)
+	traceSkip := pos
 	if order {
 		shardSkip := pos / int64(TracesPerShard)
 		if shardSkip > int64(len(shards)) {
@@ -317,7 +384,7 @@ func (cs *CassandraStorage) getAccountShards(account string, shardRange Range, o
 	return records, nil
 }
 
-func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool) ([]ActionTraceRecord, error) {
+func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionTraceRecord, error) {
 	records := make([]ActionTraceRecord, 0)
 	if len(globalSequences) == 0 {
 		return records, nil
@@ -349,15 +416,24 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64, order bool
 	if len(globalSequences) != len(records) {
 		log.Println("Warning! Not all traces found. Query: " + query) //TODO: log missing global_seq
 	}
-
-	sort.Slice(records, func(i, j int) bool {
-		if order {
-			return records[i].GlobalSeq < records[j].GlobalSeq
-		} else {
-			return records[j].GlobalSeq < records[i].GlobalSeq
-		}
-	})
 	return records, nil
+}
+
+func (cs *CassandraStorage) getContainingActionTraces(accountActionTraces []AccountActionTraceRecord) ([]ActionTraceRecord, error) {
+	globalSequences := make([]uint64, 0)
+	lastGlobalSeq := uint64(0)
+	for _, aat := range accountActionTraces {
+		gs := aat.GlobalSeq
+		if aat.Parent != nil {
+			gs = *aat.Parent
+		}
+		if gs != lastGlobalSeq {
+			globalSequences = append(globalSequences, gs)
+			lastGlobalSeq = gs
+		}
+	}
+	actionTraces, err := cs.getActionTraces(globalSequences)
+	return actionTraces, err
 }
 
 func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
