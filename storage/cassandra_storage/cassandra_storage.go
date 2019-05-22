@@ -125,7 +125,13 @@ func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (sto
 		return result, nil
 	}
 
-	//TODO: make request to cassandra
+	accounts, err := cs.getKeyAccounts(args.PublicKey)
+	if err != nil {
+		return result, err
+	}
+	accounts = utility.Unique(accounts)
+	sort.Strings(accounts)
+	result.AccountNames = accounts
 	return result, nil
 }
 
@@ -445,6 +451,23 @@ func (cs *CassandraStorage) getContainingActionTraces(accountActionTraces []Acco
 
 func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]string, error) {
 	query := fmt.Sprintf("SELECT name FROM %s WHERE controlling_name='%s'", TableAccountControllingAccount, controllingAccount)
+  
+  accounts := make([]string, 0)
+	var account string
+	iter := cs.Session.Query(query).Iter()
+	for iter.Scan(&account) {
+		accounts = append(accounts, account)
+	}
+	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+    log.Println("Error from getControlledAccounts: " + err.Error())
+    return accounts, err
+	}
+	return accounts, nil
+}
+
+func (cs *CassandraStorage) getKeyAccounts(key string) ([]string, error) {
+	query := fmt.Sprintf("SELECT name FROM %s WHERE key='%s'", TableAccountPublicKey, key)
 
 	accounts := make([]string, 0)
 	var account string
@@ -454,7 +477,7 @@ func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]
 	}
 	if err := iter.Close(); err != nil {
 		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
-		log.Println("Error from getControlledAccounts: " + err.Error())
+		log.Println("Error from getKeyAccounts: " + err.Error())
 		return accounts, err
 	}
 	return accounts, nil
