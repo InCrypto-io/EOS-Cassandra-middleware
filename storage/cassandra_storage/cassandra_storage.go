@@ -349,7 +349,7 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 		fmt.Println("Query: ", query)
 		var r AccountActionTraceRecord
 		iter := cs.Session.Query(query).Iter()
-		for !withLimit || (limit > 0 && iter.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent)) {
+		for (!withLimit || limit > 0) && iter.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent) {
 			if traceSkip > 0 {
 				traceSkip -= 1
 			} else {
