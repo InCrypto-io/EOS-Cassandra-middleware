@@ -84,9 +84,9 @@ func Test_getAccountActionTraces(t *testing.T) {
 		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 9, 2, expectedRecords))
 }
 
-func getGetAccountActionTracesTester(hs *TestCassandraStorage, account string, shards []Timestamp, blockTimeRange Range, order bool, pos int64, limit int64, expected []AccountActionTraceRecord) func (*testing.T) {
+func getGetAccountActionTracesTester(hs *TestCassandraStorage, account string, shards []Timestamp, blockTimeRange Range, order bool, pos int64, count int64, expected []AccountActionTraceRecord) func (*testing.T) {
 	return func(t *testing.T) {
-		accountActionTraces, err := hs.getAccountActionTraces(account, shards, blockTimeRange, order, pos, limit)
+		accountActionTraces, err := hs.getAccountActionTraces(account, shards, blockTimeRange, order, pos, count)
 		if err != nil {
 			t.Error("getAccountActionTraces failed: " + err.Error())
 			return
