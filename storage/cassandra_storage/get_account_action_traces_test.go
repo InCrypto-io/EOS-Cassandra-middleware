@@ -60,16 +60,28 @@ func Test_getAccountActionTraces(t *testing.T) {
 	defaultShards := []Timestamp{ shard1, shard2 }
 	defaultRange := NewTimestampRange(&shard1, true, &shard2, true)
 	var r Range
+	expectedRecords := []AccountActionTraceRecord{}
 	t.Run("should return empty set (empty account)",
-		getGetAccountActionTracesTester(hs, "", defaultShards, defaultRange, true, 0, 0, []AccountActionTraceRecord{}))
+		getGetAccountActionTracesTester(hs, "", defaultShards, defaultRange, true, 0, 0, expectedRecords))
 	t.Run("should return empty set (empty shards)",
-		getGetAccountActionTracesTester(hs, testAccount, []Timestamp{}, defaultRange, true, 0, 0, []AccountActionTraceRecord{}))
+		getGetAccountActionTracesTester(hs, testAccount, []Timestamp{}, defaultRange, true, 0, 0, expectedRecords))
 	r = NewTimestampRange(&shard1, true, &shard1, true)
 	t.Run("should return empty set (empty range)",
-		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 0, 0, []AccountActionTraceRecord{}))
+		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 0, 0, expectedRecords))
 	record := AccountActionTraceRecord{ AccountName: testAccount, GlobalSeq: 11, ShardId: shard1, BlockTime: Timestamp{ Time: shard1.Add(time.Minute) }, Parent: nil }
+	expectedRecords = []AccountActionTraceRecord{ record }
 	t.Run("should return single trace",
-		getGetAccountActionTracesTester(hs, testAccount, defaultShards, defaultRange, true, 0, 1, []AccountActionTraceRecord{ record }))
+		getGetAccountActionTracesTester(hs, testAccount, defaultShards, defaultRange, true, 0, 1, expectedRecords))
+	r = NewTimestampRange(&shard1, false, &shard2, false)
+	record = AccountActionTraceRecord{ AccountName: testAccount, GlobalSeq: 10000, ShardId: shard1, BlockTime: Timestamp{ Time: shard1.Add(999 * time.Minute) }, Parent: nil }
+	expectedRecords = []AccountActionTraceRecord{ record }
+	record = AccountActionTraceRecord{ AccountName: testAccount, GlobalSeq: 10001, ShardId: shard2, BlockTime: shard2, Parent: nil }
+	expectedRecords = append(expectedRecords, record)
+	t.Run("should return two traces from different shards (pos=999, count=2)",
+		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 999, 2, expectedRecords))
+	r = NewTimestampRange(&Timestamp{ Time: shard1.Add(999 * time.Minute) }, false, &shard2, false)
+	t.Run("should return two traces from different shards (range that covering 10 last traces from one shard and 10 first traces from second shard + pos=9, count=2)",
+		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 9, 2, expectedRecords))
 }
 
 func getGetAccountActionTracesTester(hs *TestCassandraStorage, account string, shards []Timestamp, blockTimeRange Range, order bool, pos int64, limit int64, expected []AccountActionTraceRecord) func (*testing.T) {
@@ -80,7 +92,7 @@ func getGetAccountActionTracesTester(hs *TestCassandraStorage, account string, s
 			return
 		}
 		if len(accountActionTraces) != len(expected) {
-			t.Error("Wrong result array length")
+			t.Error("Wrong result array length.", "Got:", len(accountActionTraces), "Expected:", len(expected))
 			return
 		}
 		for i, aat := range accountActionTraces {
