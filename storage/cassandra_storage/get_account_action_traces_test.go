@@ -67,7 +67,7 @@ func Test_getAccountActionTraces(t *testing.T) {
 	r = NewTimestampRange(&shard1, true, &shard1, true)
 	t.Run("should return empty set (empty range)",
 		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 0, 0, []AccountActionTraceRecord{}))
-	record := AccountActionTraceRecord{ AccountName: testAccount, GlobalSeq: 1, ShardId: shard1, BlockTime: shard1, Parent: nil }
+	record := AccountActionTraceRecord{ AccountName: testAccount, GlobalSeq: 11, ShardId: shard1, BlockTime: Timestamp{ Time: shard1.Add(time.Minute) }, Parent: nil }
 	t.Run("should return single trace",
 		getGetAccountActionTracesTester(hs, testAccount, defaultShards, defaultRange, true, 0, 1, []AccountActionTraceRecord{ record }))
 }
