@@ -45,8 +45,8 @@ func Test_getAccountActionTraces(t *testing.T) {
 		blockTime.Time = blockTime.Add(time.Minute)
 	}
 
+	blockTime.Time = blockTime.Add(time.Hour)
 	shard2 := blockTime
-	shard2.Time = shard2.Add(time.Hour)
 	for i := 0; i < 1000; i++ {
 		err = hs.Session.Query(fmt.Sprintf(TemplateInsertAccountActionTrace, testAccount, shard2.String(), globalSeq, blockTime.String())).Exec()
 		if err != nil {
@@ -78,7 +78,7 @@ func Test_getAccountActionTraces(t *testing.T) {
 	record = AccountActionTraceRecord{ AccountName: testAccount, GlobalSeq: 10001, ShardId: shard2, BlockTime: shard2, Parent: nil }
 	expectedRecords = append(expectedRecords, record)
 	t.Run("should return two traces from different shards (pos=999, count=2)",
-		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 999, 2, expectedRecords))
+		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 9999, 2, expectedRecords))
 	r = NewTimestampRange(&Timestamp{ Time: shard1.Add(999 * time.Minute) }, false, &shard2, false)
 	t.Run("should return two traces from different shards (range that covering 10 last traces from one shard and 10 first traces from second shard + pos=9, count=2)",
 		getGetAccountActionTracesTester(hs, testAccount, defaultShards, r, true, 9, 2, expectedRecords))
@@ -97,19 +97,20 @@ func getGetAccountActionTracesTester(hs *TestCassandraStorage, account string, s
 		}
 		for i, aat := range accountActionTraces {
 			if aat.AccountName != expected[i].AccountName {
-				t.Error("Wrong account name.", "Got:", aat.AccountName, "Expected:", expected[i].AccountName)
+				t.Error(fmt.Sprintf("Wrong account name for %d account action trace.", i), "Got:", aat.AccountName, "Expected:", expected[i].AccountName)
 			}
 			if aat.GlobalSeq != expected[i].GlobalSeq {
-				t.Error("Wrong global_seq.", "Got:", aat.GlobalSeq, "Expected:", expected[i].GlobalSeq)
+				t.Error(fmt.Sprintf("Wrong global_seq for %d account action trace.", i), "Got:", aat.GlobalSeq, "Expected:", expected[i].GlobalSeq)
 			}
 			if aat.BlockTime != expected[i].BlockTime {
-				t.Error("Wrong block time.", "Got:", aat.BlockTime, "Expected:", expected[i].BlockTime)
+				fmt.Println(aat)
+				t.Error(fmt.Sprintf("Wrong block time for %d account action trace.", i), "Got:", aat.BlockTime, "Expected:", expected[i].BlockTime)
 			}
 			if aat.Parent != expected[i].Parent {
-				t.Error("Wrong parent.", "Got:", aat.Parent, "Expected:", expected[i].Parent)
+				t.Error(fmt.Sprintf("Wrong parent for %d account action trace.", i), "Got:", aat.Parent, "Expected:", expected[i].Parent)
 			}
 			if aat.ShardId != expected[i].ShardId {
-				t.Error("Wrong shard_id.", "Got:", aat.ShardId, "Expected:", expected[i].ShardId)
+				t.Error(fmt.Sprintf("Wrong shard_id for %d account action trace.", i), "Got:", aat.ShardId, "Expected:", expected[i].ShardId)
 			}
 		}
 	}
