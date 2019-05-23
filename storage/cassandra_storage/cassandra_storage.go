@@ -270,7 +270,7 @@ func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, 
 	if err != nil {
 		return result, err
 	}
-	sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
+	sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[j].GlobalSeq < actionTraces[i].GlobalSeq })
 	log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
 	if len(actionTraces) == 0 {
 		return result, nil
