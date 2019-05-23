@@ -320,7 +320,8 @@ func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, 
 
 
 //private
-func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Timestamp, blockTimeRange Range, order bool, pos int64, limit int64) ([]AccountActionTraceRecord, error) {
+//if order == false only works with pos == 0
+func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Timestamp, blockTimeRange Range, order bool, pos int64, count int64) ([]AccountActionTraceRecord, error) {
 	records := make([]AccountActionTraceRecord, 0)
 	traceSkip := pos
 	if order {
@@ -331,6 +332,7 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 		shards = shards[shardSkip:]
 		traceSkip = pos % int64(TracesPerShard)
 	}
+	limit := pos + count
 	withLimit := limit > 0
 	orderStr := "ASC"
 	if !order {
@@ -349,12 +351,12 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 		fmt.Println("Query: ", query)
 		var r AccountActionTraceRecord
 		iter := cs.Session.Query(query).Iter()
-		for (!withLimit || limit > 0) && iter.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent) {
+		for (!withLimit || count > 0) && iter.Scan(&r.AccountName, &r.ShardId.Time, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent) {
 			if traceSkip > 0 {
 				traceSkip -= 1
 			} else {
 				records = append(records, r)
-				limit -= 1
+				count -= 1
 			}
 		}
 		if err := iter.Close(); err != nil {
@@ -362,7 +364,7 @@ func (cs *CassandraStorage) getAccountActionTraces(account string, shards []Time
 			log.Println("Error from getAccountActionTraces: " + err.Error())
 			return records, err
 		}
-		if withLimit && limit == 0 {
+		if withLimit && count == 0 {
 			break
 		}
 	}
