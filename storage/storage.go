@@ -67,9 +67,12 @@ type GetTransactionArgs struct {
 }
 
 type GetTransactionResult struct {
-	ID                      string `json:"id"`
-	// TODO...
-	LastIrreversibleBlock   uint64 `json:"last_irreversible_block"`
+	ID                                    string `json:"id"`
+	Trx                   map[string]interface{} `json:"trx"`
+	BlockTime                        interface{} `json:"block_time"`
+	BlockNum                         interface{} `json:"block_num"`
+	Traces                         []interface{} `json:"traces"`
+	LastIrreversibleBlock                 uint64 `json:"last_irreversible_block"`
 }
 
 //get_key_accounts

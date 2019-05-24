@@ -114,7 +114,29 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 		return result, errors.New("Invalid transaction ID: " + args.ID)
 	}
 
-	//TODO: make request to cassandra
+	transaction, err := cs.getTransaction(args.ID)
+	if err != nil {
+		return result, err
+	}
+	transactionTrace, err := cs.getTransactionTrace(args.ID)
+	if err != nil {
+		return result, err
+	}
+	expandedTraces := make([]*ActionTraceDoc, 0)
+	for _, t := range transactionTrace.Doc.ActionTraces {
+		expandedTraces = append(expandedTraces, t.ExpandTraces()...)
+	}
+	for _, t := range expandedTraces {
+		result.Traces = append(result.Traces, *t)
+	}
+	result.ID = transaction.ID
+	result.BlockNum = transactionTrace.Doc.BlockNum
+	result.BlockTime = transactionTrace.Doc.BlockTime
+	result.Trx = make(map[string]interface{})
+	result.Trx["trx"] = transaction.Doc
+	result.Trx["receipt"] = transactionTrace.Doc.Receipt
+	//TODO: add "trx" to result.Trx["receipt"]
+
 	return result, nil
 }
 
@@ -453,8 +475,8 @@ func (cs *CassandraStorage) getContainingActionTraces(accountActionTraces []Acco
 
 func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]string, error) {
 	query := fmt.Sprintf("SELECT name FROM %s WHERE controlling_name='%s'", TableAccountControllingAccount, controllingAccount)
-  
-  accounts := make([]string, 0)
+
+	accounts := make([]string, 0)
 	var account string
 	iter := cs.Session.Query(query).Iter()
 	for iter.Scan(&account) {
@@ -462,8 +484,8 @@ func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]
 	}
 	if err := iter.Close(); err != nil {
 		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
-    log.Println("Error from getControlledAccounts: " + err.Error())
-    return accounts, err
+		log.Println("Error from getControlledAccounts: " + err.Error())
+		return accounts, err
 	}
 	return accounts, nil
 }
@@ -495,6 +517,46 @@ func (cs *CassandraStorage) getLastIrreversibleBlock() (uint64, error) {
 		return 0, err
 	}
 	return lib, nil
+}
+
+func (cs *CassandraStorage) getTransaction(id string) (*TransactionRecord, error)  {
+	query := fmt.Sprintf("SELECT * FROM %s WHERE id='%s'", TableTransaction, id)
+
+	var record TransactionRecord
+	var doc string
+	if err := cs.Session.Query(query).Scan(&record.ID, &doc); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getTransaction: " + err.Error())
+		return nil, err
+	}
+
+	err := json.Unmarshal([]byte(doc), &record.Doc)
+	if err != nil {
+		err = fmt.Errorf("failed to unmarshal transaction %s: %s", id, err.Error())
+		log.Println(fmt.Sprintf("Error from getTransaction: %s", err.Error()))
+		return nil, err
+	}
+	return &record, nil
+}
+
+func (cs *CassandraStorage) getTransactionTrace(id string) (*TransactionTraceRecord, error)  {
+	query := fmt.Sprintf("SELECT * FROM %s WHERE id='%s'", TableTransactionTrace, id)
+
+	var record TransactionTraceRecord
+	var doc string
+	if err := cs.Session.Query(query).Scan(&record.ID, &record.BlockDate, &record.BlockNum, &doc); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getTransactionTrace: " + err.Error())
+		return nil, err
+	}
+
+	err := json.Unmarshal([]byte(doc), &record.Doc)
+	if err != nil {
+		err = fmt.Errorf("failed to unmarshal transaction trace %s: %s", id, err.Error())
+		log.Println(fmt.Sprintf("Error from getTransactionTrace: %s", err.Error()))
+		return nil, err
+	}
+	return &record, nil
 }
 
 func (cs *CassandraStorage) countAccountActionTraces(account string, shards []Timestamp, blockTimeRange Range, top uint64) (uint64, error) {

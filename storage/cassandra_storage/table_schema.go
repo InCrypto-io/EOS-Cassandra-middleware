@@ -39,6 +39,20 @@ type ActionTraceRecord struct {
 }
 
 
+type TransactionRecord struct {
+	ID  string
+	Doc TransactionDoc
+}
+
+
+type TransactionTraceRecord struct {
+	ID        string
+	BlockDate string
+	BlockNum  uint64
+	Doc TransactionTraceDoc
+}
+
+
 type ActionTraceDoc struct {
 	Receipt          map[string]interface{} `json:"receipt"`
 	Act              map[string]interface{} `json:"act"`
@@ -52,6 +66,27 @@ type ActionTraceDoc struct {
 	AccountRamDeltas            interface{} `json:"account_ram_deltas"`
 	Except                      interface{} `json:"except"`
 	InlineTraces           []ActionTraceDoc `json:"inline_traces"`
+}
+
+func (doc *ActionTraceDoc) ExpandTraces() []*ActionTraceDoc {
+	var traces []*ActionTraceDoc
+	if doc == nil {
+		return traces
+	}
+
+	tmp := []*ActionTraceDoc {doc}
+	for len(tmp) > 0 {
+		tPtr := tmp[0]
+		tmp = tmp[1:]
+		traces = append(traces, tPtr)
+
+		var inlineTraces []*ActionTraceDoc
+		for i, _ := range tPtr.InlineTraces {
+			inlineTraces = append(inlineTraces, &tPtr.InlineTraces[i])
+		}
+		tmp = append(inlineTraces, tmp...)
+	}
+	return traces
 }
 
 func (doc *ActionTraceDoc) GetTrace(target uint64) *ActionTraceDoc {
@@ -79,4 +114,33 @@ func (doc *ActionTraceDoc) GetTrace(target uint64) *ActionTraceDoc {
 		}
 	}
 	return nil
+}
+
+
+type TransactionDoc struct {
+	Expiration            interface{} `json:"expiration"`
+	RefBlockNum           interface{} `json:"ref_block_num"`
+	RefBlockPrefix        interface{} `json:"ref_block_prefix"`
+	MaxNetUsageWords      interface{} `json:"max_net_usage_words"`
+	MaxCpuUsageMs         interface{} `json:"max_cpu_usage_ms"`
+	DelaySec              interface{} `json:"delay_sec"`
+	ContextFreeActions    interface{} `json:"context_free_actions"`
+	Actions               interface{} `json:"actions"`
+	TransactionExtensions interface{} `json:"transaction_extensions"`
+	Signatures            interface{} `json:"signatures"`
+	ContextFreeData       interface{} `json:"context_free_data"`
+}
+
+
+type TransactionTraceDoc struct {
+	ID                   interface{} `json:"id"`
+	BlockNum             interface{} `json:"block_num"`
+	BlockTime            interface{} `json:"block_time"`
+	ProducerBlockId      interface{} `json:"producer_block_id"`
+	Receipt              interface{} `json:"receipt"`
+	Elapsed              interface{} `json:"elapsed"`
+	NetUsage             interface{} `json:"net_usage"`
+	Scheduled            interface{} `json:"scheduled"`
+	ActionTraces    []ActionTraceDoc `json:"action_traces"`
+	FailedDtrxTrace      interface{} `json:"failed_dtrx_trace"`
 }
