@@ -10,6 +10,7 @@ import (
 	"log"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -148,19 +149,37 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 							if len(v) < 2 {
 								return result, nil
 							}
+							receipt := result.Trx["receipt"]
 							trx := v[1]
-							fmt.Println(trx)
 							if s, ok := trx.(string); ok {
 								if s != args.ID {
 									continue
 								}
-								receipt := result.Trx["receipt"]
 								if m, ok := receipt.(map[string]interface{}); ok {
 									m["trx"] = v
 									result.Trx["receipt"] = m
 								}
-							} else {
-								//TODO:
+							} else if m, ok := trx.(map[string]interface{}); ok {
+								compressionObj, _ := m["compression"]
+								if compression, ok := compressionObj.(string); ok {
+									if compression != "none" {
+										continue
+									}
+									if packed, ok := m["packed_trx"].(string); ok {
+										toFind := ""
+										if hex, ok := transactionTrace.Doc.ActionTraces[0].Act["hex_data"]; ok {
+											toFind, _ = hex.(string)
+										} else if data, ok := transactionTrace.Doc.ActionTraces[0].Act["data"]; ok {
+											toFind, _ = data.(string)
+										}
+										if strings.Contains(packed, toFind) {
+											if m, ok := receipt.(map[string]interface{}); ok {
+												m["trx"] = v
+												result.Trx["receipt"] = m
+											}
+										}
+									}
+								}
 							}
 						}
 					}
