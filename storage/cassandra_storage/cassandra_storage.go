@@ -135,7 +135,39 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 	result.Trx = make(map[string]interface{})
 	result.Trx["trx"] = transaction.Doc
 	result.Trx["receipt"] = transactionTrace.Doc.Receipt
-	//TODO: add "trx" to result.Trx["receipt"]
+	if blockId, ok := transactionTrace.Doc.ProducerBlockId.(string); ok {
+		block, err := cs.getBlock(blockId)
+		if err != nil {
+			return result, nil
+		}
+		if transactionsObj, ok := block.Doc.Block["transactions"]; ok {
+			if transactions, ok := transactionsObj.([]interface{}); ok {
+				for _, t := range transactions {
+					if m, ok := t.(map[string]interface{});ok {
+						if v, ok := m["trx"].([]interface{}); ok {
+							if len(v) < 2 {
+								return result, nil
+							}
+							trx := v[1]
+							fmt.Println(trx)
+							if s, ok := trx.(string); ok {
+								if s != args.ID {
+									continue
+								}
+								receipt := result.Trx["receipt"]
+								if m, ok := receipt.(map[string]interface{}); ok {
+									m["trx"] = v
+									result.Trx["receipt"] = m
+								}
+							} else {
+								//TODO:
+							}
+						}
+					}
+				}
+			}
+		}
+	}
 
 	return result, nil
 }
@@ -454,6 +486,26 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 		log.Println("Warning! Not all traces found. Query: " + query) //TODO: log missing global_seq
 	}
 	return records, nil
+}
+
+func (cs *CassandraStorage) getBlock(id string) (*BlockRecord, error)  {
+	query := fmt.Sprintf("SELECT * FROM %s WHERE id='%s'", TableBlock, id)
+
+	var record BlockRecord
+	var doc string
+	if err := cs.Session.Query(query).Scan(&record.ID, &record.BlockNum, &doc, &record.Irreversible); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getBlock: " + err.Error())
+		return nil, err
+	}
+
+	err := json.Unmarshal([]byte(doc), &record.Doc)
+	if err != nil {
+		err = fmt.Errorf("failed to unmarshal block %s: %s", id, err.Error())
+		log.Println(fmt.Sprintf("Error from getBlock: %s", err.Error()))
+		return nil, err
+	}
+	return &record, nil
 }
 
 func (cs *CassandraStorage) getContainingActionTraces(accountActionTraces []AccountActionTraceRecord) ([]ActionTraceRecord, error) {

@@ -39,6 +39,14 @@ type ActionTraceRecord struct {
 }
 
 
+type BlockRecord struct {
+	ID           string
+	BlockNum     uint64
+	Doc          BlockDoc
+	Irreversible *bool
+}
+
+
 type TransactionRecord struct {
 	ID  string
 	Doc TransactionDoc
@@ -114,6 +122,29 @@ func (doc *ActionTraceDoc) GetTrace(target uint64) *ActionTraceDoc {
 		}
 	}
 	return nil
+}
+
+
+type BlockDoc struct {
+	ID                                          interface{} `json:"id"`
+	BlockNum                                    interface{} `json:"block_num"`
+	Header                                      interface{} `json:"header"`
+	DposProposedIrreversibleBlocknum            interface{} `json:"dpos_proposed_irreversible_blocknum"`
+	DposIrreversibleBlocknum                    interface{} `json:"dpos_irreversible_blocknum"`
+	BftIrreversibleBlocknum                     interface{} `json:"bft_irreversible_blocknum"`
+	PendingScheduleLibNum                       interface{} `json:"pending_schedule_lib_num"`
+	PendingScheduleHash                         interface{} `json:"pending_schedule_hash"`
+	PendingSchedule                             interface{} `json:"pending_schedule"`
+	ActiveSchedule                              interface{} `json:"active_schedule"`
+	BlockrootMerkle                             interface{} `json:"blockroot_merkle"`
+	ProducerToLastProduced                      interface{} `json:"producer_to_last_produced"`
+	ProducerToLastImpliedIrb                    interface{} `json:"producer_to_last_implied_irb"`
+	BlockSigningKey                             interface{} `json:"block_signing_key"`
+	ConfirmCount                                interface{} `json:"confirm_count"`
+	Confirmations                               interface{} `json:"confirmations"`
+	Block                            map[string]interface{} `json:"block"`
+	Validated                                   interface{} `json:"validated"`
+	InCurrentChain                              interface{} `json:"in_current_chain"`
 }
 
 
