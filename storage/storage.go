@@ -1,6 +1,10 @@
 package storage
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 //get_actions
 type GetActionArgs struct {
@@ -56,6 +60,7 @@ type Action struct {
 	BlockTime            interface{} `json:"block_time"`
 	ActionTrace      json.RawMessage `json:"action_trace"`
 }
+
 type GetActionsResult struct {
 	Actions               []Action `json:"actions"`
 	LastIrreversibleBlock   uint64 `json:"last_irreversible_block"`
@@ -93,10 +98,76 @@ type GetControlledAccountsResult struct {
 	ControlledAccounts []string `json:"controlled_accounts"`
 }
 
+//find_actions
+type FindActionsArgs struct {
+	AccountName      string `json:"account_name"`
+	FromDate    interface{} `json:"from_date"`
+	ToDate      interface{} `json:"to_date"`
+}
+
+func (args *FindActionsArgs) GetFromTime() *time.Time {
+	var t *time.Time
+	if s, ok := args.FromDate.(string); ok {
+		tmp, err := time.Parse("2006-01-02T15:04:05", s)
+		if err != nil {
+			return t
+		}
+		t = &tmp
+	} else if n, ok := args.FromDate.(float64); ok {
+		unixT := time.Unix(int64(n), 0)
+		t = &unixT
+	}
+	return t
+}
+
+func (args *FindActionsArgs) GetToTime() *time.Time {
+	var t *time.Time
+	if s, ok := args.ToDate.(string); ok {
+		tmp, err := time.Parse("2006-01-02T15:04:05", s)
+		if err != nil {
+			return t
+		}
+		t = &tmp
+	} else if n, ok := args.ToDate.(float64); ok {
+		unixT := time.Unix(int64(n), 0)
+		t = &unixT
+	}
+	return t
+}
+
+func (p *FindActionsArgs) prepareTimeStrings() {
+	if _, ok := p.FromDate.(string); ok {
+		//OK, nothing to do here
+	} else if n, ok := p.FromDate.(float64); ok {
+		t := time.Unix(int64(n), 0)
+		s := fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%02d.000",
+			t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
+		p.FromDate = s
+	} else {
+		p.FromDate = ""
+	}
+	if _, ok := p.ToDate.(string); ok {
+		//OK, nothing to do here
+	} else if n, ok := p.ToDate.(float64); ok {
+		t := time.Unix(int64(n), 0)
+		s := fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%02d.000",
+			t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
+		p.ToDate = s
+	} else {
+		p.ToDate = ""
+	}
+}
+
+type FindActionsResult struct {
+	Actions               []Action `json:"actions"`
+	LastIrreversibleBlock   uint64 `json:"last_irreversible_block"`
+}
+
 
 type IHistoryStorage interface {
 	GetActions(GetActionArgs)                        (GetActionsResult,            error)
 	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        error)
 	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        error)
 	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, error)
+	FindActions(FindActionsArgs)                     (FindActionsResult,           error)
 }
