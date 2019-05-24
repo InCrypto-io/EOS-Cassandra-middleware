@@ -96,7 +96,7 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 		return result, nil
 	}
 	if order {
-		result.Actions, err = cs.getAccountHistory(args.AccountName, pos, count)
+		result.Actions, err = cs.getAccountHistory(args.AccountName, pos, count, TimestampRange{})
 	} else {
 		result.Actions, err = cs.getAccountHistoryReverse(args.AccountName, pos, count)
 	}
@@ -231,12 +231,45 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 	return result, nil
 }
 
+func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.FindActionsResult, error) {
+	result := storage.GetActionsResult{ Actions: make([]storage.Action, 0) }
+
+	lib, err := cs.getLastIrreversibleBlock()
+	if err != nil {
+		log.Println(fmt.Sprintf("Error from GetActions(): %s. Continuing execution.", err.Error()))
+	}
+	result.LastIrreversibleBlock = lib
+
+	fromTime := args.GetFromTime()
+	toTime := args.GetToTime()
+	var fromTimestamp *Timestamp
+	var toTimestamp *Timestamp
+	if fromTime != nil {
+		fromTimestamp = &Timestamp{Time: *fromTime}
+	}
+	if toTime != nil {
+		toTimestamp = &Timestamp{Time: *toTime}
+	}
+	r := NewTimestampRange(fromTimestamp, false, toTimestamp, false)
+
+	if args.AccountName != "" {
+		result.Actions, err = cs.getAccountHistory(args.AccountName, 0, 0, r)
+		if err != nil {
+			return result, err
+		}
+	} else {
+
+	}
+
+	return
+}
+
 
 //getAccountHistory is a handler for get_actions request with pos != -1
-func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count int64) ([]storage.Action, error) {
+func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count int64, timeRange Range) ([]storage.Action, error) {
 	result := make([]storage.Action, 0)
 	order := true
-	shardRecords, err := cs.getAccountShards(account, TimestampRange{}, order, countShards(pos, count, order))
+	shardRecords, err := cs.getAccountShards(account, timeRange, order, countShards(pos, count, order))
 	if err != nil {
 		return result, err
 	}
@@ -245,7 +278,7 @@ func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count i
 	for i, shard := range shardRecords {
 		shards[i] = shard.ShardId
 	}
-	accountActionTraces, err := cs.getAccountActionTraces(account, shards, TimestampRange{}, order, pos, count)
+	accountActionTraces, err := cs.getAccountActionTraces(account, shards, timeRange, order, pos, count)
 	if err != nil {
 		return result, err
 	}
@@ -579,6 +612,10 @@ func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]
 		return accounts, err
 	}
 	return accounts, nil
+}
+
+func (cs *CassandraStorage) getDateActionTraces(r Range) ([]DateActionTraceRecord, error) {
+	//TODO: implement
 }
 
 func (cs *CassandraStorage) getKeyAccounts(key string) ([]string, error) {
