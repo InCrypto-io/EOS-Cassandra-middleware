@@ -170,5 +170,5 @@ type IHistoryStorage interface {
 	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        *error_result.ErrorResult)
 	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        *error_result.ErrorResult)
 	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, *error_result.ErrorResult)
-	FindActions(FindActionsArgs)                     (FindActionsResult,           error)
+	FindActions(FindActionsArgs)                     (FindActionsResult,           *error_result.ErrorResult)
 }
