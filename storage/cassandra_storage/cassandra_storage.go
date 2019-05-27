@@ -490,7 +490,7 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 		if pos + offset > len(globalSequences) {
 			chunk = globalSequences[pos:]
 		} else {
-			chunk = globalSequences[pos:offset]
+			chunk = globalSequences[pos:pos+offset]
 		}
 		pos += offset
 		if len(chunk) == 0 {
