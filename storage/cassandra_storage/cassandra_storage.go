@@ -477,32 +477,42 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 	if len(globalSequences) == 0 {
 		return records, nil
 	}
-	inClause := " global_seq IN ("
-	for _, gs := range globalSequences[:len(globalSequences)-1] {
-		inClause += strconv.FormatUint(gs, 10) + ", "
-	}
-	inClause += strconv.FormatUint(globalSequences[len(globalSequences)-1], 10) + ")"
-	query := fmt.Sprintf("SELECT * FROM %s WHERE %s", TableActionTrace, inClause)
-	fmt.Println("Query: ", query)
-	var r ActionTraceRecord
-	var doc string
-	iter := cs.Session.Query(query).Iter()
-	for iter.Scan(&r.GlobalSeq, &doc, &r.Parent) {
-		err := json.Unmarshal([]byte(doc), &r.Doc)
-		if err != nil {
-			log.Println(fmt.Sprintf("Error from getActionTraces. Failed to unmarshal action_trace %s: %s", doc, err.Error()))
-			continue
+	pos := 0
+	offset := 10
+	for pos < len(globalSequences) {
+		var chunk []uint64
+		if pos + offset > len(globalSequences) {
+			chunk = globalSequences[pos:]
+		} else {
+			chunk = globalSequences[pos:offset]
 		}
-		records = append(records, r)
-		r = ActionTraceRecord{}
-	}
-	if err := iter.Close(); err != nil {
-		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
-		log.Println("Error from getActionTraces: " + err.Error())
-		return records, err
+		inClause := " global_seq IN ("
+		for _, gs := range chunk[:len(chunk)-1] {
+			inClause += strconv.FormatUint(gs, 10) + ", "
+		}
+		inClause += strconv.FormatUint(chunk[len(chunk)-1], 10) + ")"
+		query := fmt.Sprintf("SELECT * FROM %s WHERE %s", TableActionTrace, inClause)
+		fmt.Println("Query: ", query)
+		var r ActionTraceRecord
+		var doc string
+		iter := cs.Session.Query(query).Iter()
+		for iter.Scan(&r.GlobalSeq, &doc, &r.Parent) {
+			err := json.Unmarshal([]byte(doc), &r.Doc)
+			if err != nil {
+				log.Println(fmt.Sprintf("Error from getActionTraces. Failed to unmarshal action_trace %s: %s", doc, err.Error()))
+				continue
+			}
+			records = append(records, r)
+			r = ActionTraceRecord{}
+		}
+		if err := iter.Close(); err != nil {
+			err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+			log.Println("Error from getActionTraces: " + err.Error())
+			return records, err
+		}
 	}
 	if len(globalSequences) != len(records) {
-		log.Println("Warning! Not all traces found. Query: " + query) //TODO: log missing global_seq
+		log.Println("Warning! Not all traces found.") //TODO: log missing global_seq
 	}
 	return records, nil
 }
