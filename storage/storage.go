@@ -104,6 +104,7 @@ type FindActionsArgs struct {
 	AccountName      string `json:"account_name"`
 	FromDate    interface{} `json:"from_date"`
 	ToDate      interface{} `json:"to_date"`
+	LastDays        *uint32 `json:"last_days"`
 }
 
 func (args *FindActionsArgs) GetFromTime() *time.Time {
