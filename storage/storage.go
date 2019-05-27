@@ -3,7 +3,6 @@ package storage
 import (
 	"EOS-Cassandra-middleware/error_result"
 	"encoding/json"
-	"fmt"
 	"time"
 )
 
@@ -105,6 +104,7 @@ type FindActionsArgs struct {
 	FromDate    interface{} `json:"from_date"`
 	ToDate      interface{} `json:"to_date"`
 	LastDays        *uint32 `json:"last_days"`
+	Data             string `json:"data"`
 }
 
 func (args *FindActionsArgs) GetFromTime() *time.Time {
@@ -135,29 +135,6 @@ func (args *FindActionsArgs) GetToTime() *time.Time {
 		t = &unixT
 	}
 	return t
-}
-
-func (p *FindActionsArgs) prepareTimeStrings() {
-	if _, ok := p.FromDate.(string); ok {
-		//OK, nothing to do here
-	} else if n, ok := p.FromDate.(float64); ok {
-		t := time.Unix(int64(n), 0)
-		s := fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%02d.000",
-			t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
-		p.FromDate = s
-	} else {
-		p.FromDate = ""
-	}
-	if _, ok := p.ToDate.(string); ok {
-		//OK, nothing to do here
-	} else if n, ok := p.ToDate.(float64); ok {
-		t := time.Unix(int64(n), 0)
-		s := fmt.Sprintf("%d-%02d-%02dT%02d:%02d:%02d.000",
-			t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), t.Second())
-		p.ToDate = s
-	} else {
-		p.ToDate = ""
-	}
 }
 
 type FindActionsResult struct {

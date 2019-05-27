@@ -28,6 +28,10 @@ const (
 	TableTransaction               = "transaction"
 	TableTransactionTrace          = "transaction_trace"
 
+	EosStartDate = "2018-06-09"
+
+	MaxResultTraces = 10000
+
 	TracesPerShard = 10000
 
 	TemplateErrorCassandraQueryFailed = "request to Cassandra failed: %s. Query: %s"
@@ -256,20 +260,22 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 	}
 	r := NewTimestampRange(fromTimestamp, false, toTimestamp, false)
 
+	var dataFilter *DataFilter
+	if args.Data != "" {
+		dataFilter = NewDataFilter(args.Data)
+	}
+
 	if args.AccountName != "" {
-		result.Actions, err = cs.getAccountHistory(args.AccountName, 0, 0, r)
+		result.Actions, err = cs.getAccountHistory(args.AccountName, 0, 0, r)//TODO: filter by action data
 		if err != nil {
 			return result, err
 		}
 	} else {
-		result.Actions, err = cs.getActionTracesByDate(r)
+		result.Actions, err = cs.getActionTracesByDate(r, dataFilter)
 		if err != nil {
 			return result, err
 		}
 	}
-
-	//TODO: filter by action data
-
 	return result, nil
 }
 
@@ -569,15 +575,22 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 	return records, nil
 }
 
-func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange) ([]storage.Action, error) {
+func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange, dataFilter *DataFilter) ([]storage.Action, error) {
 	result := make([]storage.Action, 0)
-	startDate := timeRange.Start.Time
-	if timeRange.StartStrict {
-		startDate = startDate.AddDate(0, 0, 1)
+	filtered := 0
+	startDate, _ := time.Parse("2006-01-02", EosStartDate)
+	endDate := time.Now()
+	if timeRange.Start != nil {
+		startDate := timeRange.Start.Time
+		if timeRange.StartStrict {
+			startDate = startDate.AddDate(0, 0, 1)
+		}
 	}
-	endDate := timeRange.End.Time
-	if timeRange.EndStrict {
-		endDate = endDate.AddDate(0, 0, -1)
+	if timeRange.End != nil {
+		endDate := timeRange.End.Time
+		if timeRange.EndStrict {
+			endDate = endDate.AddDate(0, 0, -1)
+		}
 	}
 	for startDate.Before(endDate) {
 		date := startDate.Format("2006-01-02")
@@ -603,9 +616,6 @@ func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange) ([]s
 		}
 		sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
 		log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
-		if len(actionTraces) == 0 {
-			return result, nil
-		}
 		for _, dat := range dateActionTraces {
 			var doc *ActionTraceDoc
 			id := 0
@@ -631,18 +641,24 @@ func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange) ([]s
 				log.Println(fmt.Sprintf("Warning! Action trace %d not found", dat.GlobalSeq))
 				continue
 			}
-
-			bytes, err := json.Marshal(doc)
-			if err != nil {
-				log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", dat.GlobalSeq, err.Error()))
-				continue
+			if dataFilter == nil || dataFilter.IsOk(*doc) {
+				bytes, err := json.Marshal(doc)
+				if err != nil {
+					log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", dat.GlobalSeq, err.Error()))
+					continue
+				}
+				action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: nil,
+					BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+					ActionTrace: bytes }
+				result = append(result, action)
+				if len(result) >= MaxResultTraces {
+					return result, nil
+				}
+			} else {
+				filtered += 1
 			}
-			action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: nil,
-				BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
-				ActionTrace: bytes }
-			result = append(result, action)
 		}
-		if len(result) != len(dateActionTraces) {
+		if (len(result) + filtered) != len(dateActionTraces) {
 			log.Println("Warning! Missing traces")
 		}
 
@@ -709,13 +725,13 @@ func (cs *CassandraStorage) getDateActionTraces(date string, blockTimeRange Rang
 	records := make([]DateActionTraceRecord, 0)
 	rangeStr := ""
 	if !blockTimeRange.IsEmpty() {
-		rangeStr += "AND " + blockTimeRange.Format("shard_id")
+		rangeStr += "AND " + blockTimeRange.Format("block_time")
 	}
 	query := fmt.Sprintf("SELECT * FROM %s WHERE block_date='%s' %s", TableDateActionTrace, date, rangeStr)
 	fmt.Println("Query: ", query)
 	var r DateActionTraceRecord
 	iter := cs.Session.Query(query).Iter()
-	for iter.Scan(&r.BlockDate, &r.BlockTime, &r.GlobalSeq, &r.Parent) {
+	for iter.Scan(&r.BlockDate, &r.BlockTime.Time, &r.GlobalSeq, &r.Parent) {
 		records = append(records, r)
 		r = DateActionTraceRecord{}
 	}
