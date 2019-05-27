@@ -308,7 +308,7 @@ func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, 
 		return result, err
 	}
 	totalShards := len(shardRecords)
-	if maxShards := countShards(pos, count, order); maxShards > int64(len(shardRecords)) {
+	if maxShards := countShards(pos, count, order); maxShards < int64(len(shardRecords)) {
 		shardRecords = shardRecords[:maxShards]
 	}
 	log.Println("shards: ", shardRecords)
