@@ -14,6 +14,9 @@ const ConfigFilename = "config.json"
 
 type Config struct {
 	Port uint32 `json:"port"`
+
+	CassAddress  string `json:"cassandra_address"`
+	CassKeyspace string `json:"cassandra_keyspace"`
 }
 
 
@@ -32,7 +35,7 @@ func main() {
 	}
 	file.Close()
 
-	hs, err := cassandra_storage.NewCassandraStorage("46.4.120.177", "eos_history")
+	hs, err := cassandra_storage.NewCassandraStorage(config.CassAddress, config.CassKeyspace)
 	if err != nil {
 		log.Println("Failed to create history storage object: " + err.Error())
 		return
