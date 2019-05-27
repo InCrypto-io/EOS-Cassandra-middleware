@@ -262,82 +262,9 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 			return result, err
 		}
 	} else {
-		startDate := r.Start.Time
-		if r.StartStrict {
-			startDate = startDate.AddDate(0, 0, 1)
-		}
-		endDate := r.End.Time
-		if r.EndStrict {
-			endDate = endDate.AddDate(0, 0, -1)
-		}
-		for startDate.Before(endDate) {
-			date := startDate.Format("2006-01-02")
-			dateActionTraces, err := cs.getDateActionTraces(date, r)
-			if err != nil {
-				return result, nil
-			}
-			globalSequences := make([]uint64, 0)
-			lastGlobalSeq := uint64(0)
-			for _, dat := range dateActionTraces {
-				gs := dat.GlobalSeq
-				if dat.Parent != nil {
-					gs = *dat.Parent
-				}
-				if gs != lastGlobalSeq {
-					globalSequences = append(globalSequences, gs)
-					lastGlobalSeq = gs
-				}
-			}
-			actionTraces, err := cs.getActionTraces(globalSequences)
-			if err != nil {
-				return result, nil
-			}
-			sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
-			log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
-			if len(actionTraces) == 0 {
-				return result, nil
-			}
-			for _, dat := range dateActionTraces {
-				var doc *ActionTraceDoc
-				id := 0
-				if dat.Parent == nil {
-					for i, at := range actionTraces {
-						if dat.GlobalSeq == at.GlobalSeq {
-							id = i
-							doc = &at.Doc
-							break
-						}
-					}
-				} else {
-					for i, at := range actionTraces {
-						if inline := at.Doc.GetTrace(dat.GlobalSeq); inline != nil {
-							id = i
-							doc = inline
-							break
-						}
-					}
-				}
-				actionTraces = actionTraces[id:]
-				if doc == nil {
-					log.Println(fmt.Sprintf("Warning! Action trace %d not found", dat.GlobalSeq))
-					continue
-				}
-
-				bytes, err := json.Marshal(doc)
-				if err != nil {
-					log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", dat.GlobalSeq, err.Error()))
-					continue
-				}
-				action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: nil,
-					BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
-					ActionTrace: bytes }
-				result.Actions = append(result.Actions, action)
-			}
-			if len(result.Actions) != len(dateActionTraces) {
-				log.Println("Warning! Missing traces")
-			}
-
-			startDate = startDate.AddDate(0, 0, 1)
+		result.Actions, err = cs.getActionTracesByDate(r)
+		if err != nil {
+			return result, err
 		}
 	}
 
@@ -640,6 +567,88 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 		log.Println("Warning! Not all traces found.") //TODO: log missing global_seq
 	}
 	return records, nil
+}
+
+func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange) ([]storage.Action, error) {
+	result := make([]storage.Action, 0)
+	startDate := timeRange.Start.Time
+	if timeRange.StartStrict {
+		startDate = startDate.AddDate(0, 0, 1)
+	}
+	endDate := timeRange.End.Time
+	if timeRange.EndStrict {
+		endDate = endDate.AddDate(0, 0, -1)
+	}
+	for startDate.Before(endDate) {
+		date := startDate.Format("2006-01-02")
+		dateActionTraces, err := cs.getDateActionTraces(date, timeRange)
+		if err != nil {
+			return result, nil
+		}
+		globalSequences := make([]uint64, 0)
+		lastGlobalSeq := uint64(0)
+		for _, dat := range dateActionTraces {
+			gs := dat.GlobalSeq
+			if dat.Parent != nil {
+				gs = *dat.Parent
+			}
+			if gs != lastGlobalSeq {
+				globalSequences = append(globalSequences, gs)
+				lastGlobalSeq = gs
+			}
+		}
+		actionTraces, err := cs.getActionTraces(globalSequences)
+		if err != nil {
+			return result, nil
+		}
+		sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
+		log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
+		if len(actionTraces) == 0 {
+			return result, nil
+		}
+		for _, dat := range dateActionTraces {
+			var doc *ActionTraceDoc
+			id := 0
+			if dat.Parent == nil {
+				for i, at := range actionTraces {
+					if dat.GlobalSeq == at.GlobalSeq {
+						id = i
+						doc = &at.Doc
+						break
+					}
+				}
+			} else {
+				for i, at := range actionTraces {
+					if inline := at.Doc.GetTrace(dat.GlobalSeq); inline != nil {
+						id = i
+						doc = inline
+						break
+					}
+				}
+			}
+			actionTraces = actionTraces[id:]
+			if doc == nil {
+				log.Println(fmt.Sprintf("Warning! Action trace %d not found", dat.GlobalSeq))
+				continue
+			}
+
+			bytes, err := json.Marshal(doc)
+			if err != nil {
+				log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", dat.GlobalSeq, err.Error()))
+				continue
+			}
+			action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: nil,
+				BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+				ActionTrace: bytes }
+			result = append(result, action)
+		}
+		if len(result) != len(dateActionTraces) {
+			log.Println("Warning! Missing traces")
+		}
+
+		startDate = startDate.AddDate(0, 0, 1)
+	}
+	return result, nil
 }
 
 func (cs *CassandraStorage) getBlock(id string) (*BlockRecord, error)  {
