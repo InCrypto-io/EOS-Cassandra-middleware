@@ -235,7 +235,7 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 	return result, nil
 }
 
-func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.FindActionsResult, error) {
+func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.FindActionsResult, *error_result.ErrorResult) {
 	result := storage.FindActionsResult{ Actions: make([]storage.Action, 0) }
 
 	lib, err := cs.getLastIrreversibleBlock()
@@ -268,12 +268,12 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 	if args.AccountName != "" {
 		result.Actions, err = cs.getAccountHistory(args.AccountName, 0, 0, r)//TODO: filter by action data
 		if err != nil {
-			return result, err
+			return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 		}
 	} else {
 		result.Actions, err = cs.getActionTracesByDate(r, dataFilter)
 		if err != nil {
-			return result, err
+			return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 		}
 	}
 	return result, nil
