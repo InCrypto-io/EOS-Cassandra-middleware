@@ -242,6 +242,10 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 
 	fromTime := args.GetFromTime()
 	toTime := args.GetToTime()
+	if fromTime == nil && args.LastDays != nil {
+		t := time.Now().AddDate(0, 0, -int(*args.LastDays))
+		fromTime = &t
+	}
 	var fromTimestamp *Timestamp
 	var toTimestamp *Timestamp
 	if fromTime != nil {
@@ -250,7 +254,6 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 	if toTime != nil {
 		toTimestamp = &Timestamp{Time: *toTime}
 	}
-	//TODO: last days
 	r := NewTimestampRange(fromTimestamp, false, toTimestamp, false)
 
 	if args.AccountName != "" {
