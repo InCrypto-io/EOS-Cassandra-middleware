@@ -1,10 +1,10 @@
 package cassandra_storage
 
 import (
+	"EOS-Cassandra-middleware/error_result"
 	"EOS-Cassandra-middleware/storage"
 	"EOS-Cassandra-middleware/utility"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/gocql/gocql"
 	"log"
@@ -77,7 +77,7 @@ func (cs *CassandraStorage) Close() {
 	cs.Session.Close()
 }
 
-func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetActionsResult, error) {
+func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetActionsResult, *error_result.ErrorResult) {
 	result := storage.GetActionsResult{ Actions: make([]storage.Action, 0) }
 
 	lib, err := cs.getLastIrreversibleBlock()
@@ -100,10 +100,13 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 	} else {
 		result.Actions, err = cs.getAccountHistoryReverse(args.AccountName, pos, count)
 	}
-	return result, err
+	if err != nil {
+		return result, &error_result.ErrorResult{ Code:500, Message:err.Error() }
+	}
+	return result, nil
 }
 
-func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (storage.GetTransactionResult, error) {
+func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (storage.GetTransactionResult, *error_result.ErrorResult) {
 	result := storage.GetTransactionResult{}
 	lib, err := cs.getLastIrreversibleBlock()
 	if err != nil {
@@ -112,16 +115,19 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 	result.LastIrreversibleBlock = lib
 
 	if args.ID == "" {
-		return result, errors.New("Invalid transaction ID: " + args.ID)
+		return result, &error_result.ErrorResult{ Code:500, Message:"Invalid transaction ID: " + args.ID }
 	}
 
 	transaction, err := cs.getTransaction(args.ID)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 	}
 	transactionTrace, err := cs.getTransactionTrace(args.ID)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
+	}
+	if transaction == nil || transactionTrace == nil {
+		return result, &error_result.ErrorResult{Code:404, Message:"Not found"}
 	}
 	expandedTraces := make([]*ActionTraceDoc, 0)
 	for _, t := range transactionTrace.Doc.ActionTraces {
@@ -191,7 +197,7 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 	return result, nil
 }
 
-func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (storage.GetKeyAccountsResult, error) {
+func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (storage.GetKeyAccountsResult, *error_result.ErrorResult) {
 	result := storage.GetKeyAccountsResult{ AccountNames: make([]string, 0) }
 
 	if args.PublicKey == "" {
@@ -200,7 +206,7 @@ func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (sto
 
 	accounts, err := cs.getKeyAccounts(args.PublicKey)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 	}
 	accounts = utility.Unique(accounts)
 	sort.Strings(accounts)
@@ -208,7 +214,7 @@ func (cs *CassandraStorage) GetKeyAccounts(args storage.GetKeyAccountsArgs) (sto
 	return result, nil
 }
 
-func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAccountsArgs) (storage.GetControlledAccountsResult, error) {
+func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAccountsArgs) (storage.GetControlledAccountsResult, *error_result.ErrorResult) {
 	result := storage.GetControlledAccountsResult{ ControlledAccounts: make([]string, 0) }
 
 	if args.ControllingAccount == "" {
@@ -217,7 +223,7 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 
 	accounts, err := cs.getControlledAccounts(args.ControllingAccount)
 	if err != nil {
-		return result, err
+		return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 	}
 	accounts = utility.Unique(accounts)
 	sort.Strings(accounts)
@@ -596,6 +602,9 @@ func (cs *CassandraStorage) getTransaction(id string) (*TransactionRecord, error
 	var record TransactionRecord
 	var doc string
 	if err := cs.Session.Query(query).Scan(&record.ID, &doc); err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, nil
+		}
 		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
 		log.Println("Error from getTransaction: " + err.Error())
 		return nil, err
@@ -616,6 +625,9 @@ func (cs *CassandraStorage) getTransactionTrace(id string) (*TransactionTraceRec
 	var record TransactionTraceRecord
 	var doc string
 	if err := cs.Session.Query(query).Scan(&record.ID, &record.BlockDate, &record.BlockNum, &doc); err != nil {
+		if err == gocql.ErrNotFound {
+			return nil, nil
+		}
 		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
 		log.Println("Error from getTransactionTrace: " + err.Error())
 		return nil, err

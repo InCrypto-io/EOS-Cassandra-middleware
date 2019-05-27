@@ -1,6 +1,9 @@
 package storage
 
-import "encoding/json"
+import (
+	"EOS-Cassandra-middleware/error_result"
+	"encoding/json"
+)
 
 //get_actions
 type GetActionArgs struct {
@@ -95,8 +98,8 @@ type GetControlledAccountsResult struct {
 
 
 type IHistoryStorage interface {
-	GetActions(GetActionArgs)                        (GetActionsResult,            error)
-	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        error)
-	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        error)
-	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, error)
+	GetActions(GetActionArgs)                        (GetActionsResult,            *error_result.ErrorResult)
+	GetTransaction(GetTransactionArgs)               (GetTransactionResult,        *error_result.ErrorResult)
+	GetKeyAccounts(GetKeyAccountsArgs)               (GetKeyAccountsResult,        *error_result.ErrorResult)
+	GetControlledAccounts(GetControlledAccountsArgs) (GetControlledAccountsResult, *error_result.ErrorResult)
 }

@@ -1,6 +1,7 @@
 package routes
 
 import (
+	"EOS-Cassandra-middleware/error_result"
 	"EOS-Cassandra-middleware/storage"
 	"encoding/json"
 	"net/http"
@@ -9,15 +10,9 @@ import (
 const ApiPath string = "/v1/history/"
 
 
-type ErrorResult struct {
-	Code       int `json:"code"`
-	Message string `json:"message"`
-}
-
-
 func writeErrorResponse(writer http.ResponseWriter, status int, message string) {
 	writer.WriteHeader(status)
-	response := ErrorResult { Code: status, Message: message }
+	response := error_result.ErrorResult { Code: status, Message: message }
 	json.NewEncoder(writer).Encode(response)
 }
 
