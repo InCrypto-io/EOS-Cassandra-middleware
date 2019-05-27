@@ -56,7 +56,7 @@ func (args *GetActionArgs) Normalize() (int64, int64, bool) {
 
 type Action struct {
 	GlobalActionSeq      interface{} `json:"global_action_seq"`
-	AccountActionSeq          uint64 `json:"account_action_seq"`
+	AccountActionSeq         *uint64 `json:"account_action_seq,omitempty"`
 	BlockNum             interface{} `json:"block_num"`
 	BlockTime            interface{} `json:"block_time"`
 	ActionTrace      json.RawMessage `json:"action_trace"`

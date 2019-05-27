@@ -232,7 +232,7 @@ func (cs *CassandraStorage) GetControlledAccounts(args storage.GetControlledAcco
 }
 
 func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.FindActionsResult, error) {
-	result := storage.GetActionsResult{ Actions: make([]storage.Action, 0) }
+	result := storage.FindActionsResult{ Actions: make([]storage.Action, 0) }
 
 	lib, err := cs.getLastIrreversibleBlock()
 	if err != nil {
@@ -250,6 +250,7 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 	if toTime != nil {
 		toTimestamp = &Timestamp{Time: *toTime}
 	}
+	//TODO: last days
 	r := NewTimestampRange(fromTimestamp, false, toTimestamp, false)
 
 	if args.AccountName != "" {
@@ -258,10 +259,88 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 			return result, err
 		}
 	} else {
+		startDate := r.Start.Time
+		if r.StartStrict {
+			startDate = startDate.AddDate(0, 0, 1)
+		}
+		endDate := r.End.Time
+		if r.EndStrict {
+			endDate = endDate.AddDate(0, 0, -1)
+		}
+		for startDate.Before(endDate) {
+			date := startDate.Format("2006-01-02")
+			dateActionTraces, err := cs.getDateActionTraces(date, r)
+			if err != nil {
+				return result, nil
+			}
+			globalSequences := make([]uint64, 0)
+			lastGlobalSeq := uint64(0)
+			for _, dat := range dateActionTraces {
+				gs := dat.GlobalSeq
+				if dat.Parent != nil {
+					gs = *dat.Parent
+				}
+				if gs != lastGlobalSeq {
+					globalSequences = append(globalSequences, gs)
+					lastGlobalSeq = gs
+				}
+			}
+			actionTraces, err := cs.getActionTraces(globalSequences)
+			if err != nil {
+				return result, nil
+			}
+			sort.Slice(actionTraces, func(i, j int) bool { return actionTraces[i].GlobalSeq < actionTraces[j].GlobalSeq })
+			log.Println(fmt.Sprintf("Found %d traces", len(actionTraces)))
+			if len(actionTraces) == 0 {
+				return result, nil
+			}
+			for _, dat := range dateActionTraces {
+				var doc *ActionTraceDoc
+				id := 0
+				if dat.Parent == nil {
+					for i, at := range actionTraces {
+						if dat.GlobalSeq == at.GlobalSeq {
+							id = i
+							doc = &at.Doc
+							break
+						}
+					}
+				} else {
+					for i, at := range actionTraces {
+						if inline := at.Doc.GetTrace(dat.GlobalSeq); inline != nil {
+							id = i
+							doc = inline
+							break
+						}
+					}
+				}
+				actionTraces = actionTraces[id:]
+				if doc == nil {
+					log.Println(fmt.Sprintf("Warning! Action trace %d not found", dat.GlobalSeq))
+					continue
+				}
 
+				bytes, err := json.Marshal(doc)
+				if err != nil {
+					log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", dat.GlobalSeq, err.Error()))
+					continue
+				}
+				action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: nil,
+					BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+					ActionTrace: bytes }
+				result.Actions = append(result.Actions, action)
+			}
+			if len(result.Actions) != len(dateActionTraces) {
+				log.Println("Warning! Missing traces")
+			}
+
+			startDate = startDate.AddDate(0, 0, 1)
+		}
 	}
 
-	return
+	//TODO: filter by action data
+
+	return result, nil
 }
 
 
@@ -327,7 +406,7 @@ func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count i
 			continue
 		}
 		accountActionSeq := uint64(pos) + uint64(i)
-		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
+		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: &accountActionSeq,
 			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
 			ActionTrace: bytes }
 		result = append(result, action)
@@ -419,7 +498,7 @@ func (cs *CassandraStorage) getAccountHistoryReverse(account string, pos int64, 
 			continue
 		}
 		accountActionSeq := lastAccountSeq - uint64(i)
-		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: accountActionSeq,
+		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: &accountActionSeq,
 			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
 			ActionTrace: bytes }
 		result = append(result, action)
@@ -614,8 +693,26 @@ func (cs *CassandraStorage) getControlledAccounts(controllingAccount string) ([]
 	return accounts, nil
 }
 
-func (cs *CassandraStorage) getDateActionTraces(r Range) ([]DateActionTraceRecord, error) {
-	//TODO: implement
+func (cs *CassandraStorage) getDateActionTraces(date string, blockTimeRange Range) ([]DateActionTraceRecord, error) {
+	records := make([]DateActionTraceRecord, 0)
+	rangeStr := ""
+	if !blockTimeRange.IsEmpty() {
+		rangeStr += "AND " + blockTimeRange.Format("shard_id")
+	}
+	query := fmt.Sprintf("SELECT * FROM %s WHERE block_date='%s' %s", TableDateActionTrace, date, rangeStr)
+	fmt.Println("Query: ", query)
+	var r DateActionTraceRecord
+	iter := cs.Session.Query(query).Iter()
+	for iter.Scan(&r.BlockDate, &r.BlockTime, &r.GlobalSeq, &r.Parent) {
+		records = append(records, r)
+		r = DateActionTraceRecord{}
+	}
+	if err := iter.Close(); err != nil {
+		err = fmt.Errorf(TemplateErrorCassandraQueryFailed, err.Error(), query)
+		log.Println("Error from getDateActionTraces: " + err.Error())
+		return records, err
+	}
+	return records, nil
 }
 
 func (cs *CassandraStorage) getKeyAccounts(key string) ([]string, error) {
