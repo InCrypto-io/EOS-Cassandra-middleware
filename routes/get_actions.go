@@ -31,10 +31,10 @@ func (r *Router) handleGetActions() http.HandlerFunc {
 			}
 		}
 
-		response, err := r.historyStorage.GetActions(args)
-		if err != nil {
-			writeErrorResponse(writer, http.StatusInternalServerError, "Internal service error")
-			log.Println("Got error from IHistoryStorage.GetActions(). Error: " + err.Error())
+		response, errorResult := r.historyStorage.GetActions(args)
+		if errorResult != nil {
+			writeErrorResponse(writer, errorResult.Code, errorResult.Error())
+			log.Println("Got error from IHistoryStorage.GetActions(). Error: " + errorResult.Error())
 			return
 		}
 		b, err := json.Marshal(response)

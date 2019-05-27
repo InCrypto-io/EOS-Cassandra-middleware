@@ -31,10 +31,10 @@ func (r *Router) handleGetKeyAccounts() http.HandlerFunc {
 			}
 		}
 
-		response, err := r.historyStorage.GetKeyAccounts(args)
-		if err != nil {
-			writeErrorResponse(writer, http.StatusInternalServerError, "Internal service error")
-			log.Println("Got error from IHistoryStorage.GetKeyAccounts(). Error: " + err.Error())
+		response, errorResult := r.historyStorage.GetKeyAccounts(args)
+		if errorResult != nil {
+			writeErrorResponse(writer, errorResult.Code, errorResult.Error())
+			log.Println("Got error from IHistoryStorage.GetKeyAccounts(). Error: " + errorResult.Error())
 			return
 		}
 		b, err := json.Marshal(response)
