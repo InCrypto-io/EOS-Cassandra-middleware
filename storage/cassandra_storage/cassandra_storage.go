@@ -492,6 +492,10 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 		} else {
 			chunk = globalSequences[pos:offset]
 		}
+		pos += offset
+		if len(chunk) == 0 {
+			break
+		}
 		inClause := " global_seq IN ("
 		for _, gs := range chunk[:len(chunk)-1] {
 			inClause += strconv.FormatUint(gs, 10) + ", "
