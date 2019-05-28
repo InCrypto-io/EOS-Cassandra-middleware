@@ -484,7 +484,7 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 		return records, nil
 	}
 	pos := 0
-	offset := 10
+	offset := 50
 	for pos < len(globalSequences) {
 		var chunk []uint64
 		if pos + offset > len(globalSequences) {
