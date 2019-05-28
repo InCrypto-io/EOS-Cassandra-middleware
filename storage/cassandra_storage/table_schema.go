@@ -47,6 +47,14 @@ type BlockRecord struct {
 }
 
 
+type DateActionTraceRecord struct {
+	BlockDate string
+	BlockTime Timestamp
+	GlobalSeq uint64
+	Parent    *uint64
+}
+
+
 type TransactionRecord struct {
 	ID  string
 	Doc TransactionDoc
