@@ -100,7 +100,7 @@ func (cs *CassandraStorage) GetActions(args storage.GetActionArgs) (storage.GetA
 		return result, nil
 	}
 	if order {
-		result.Actions, err = cs.getAccountHistory(args.AccountName, pos, count, TimestampRange{})
+		result.Actions, err = cs.getAccountHistory(args.AccountName, pos, count, TimestampRange{}, nil)
 	} else {
 		result.Actions, err = cs.getAccountHistoryReverse(args.AccountName, pos, count)
 	}
@@ -266,7 +266,7 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 	}
 
 	if args.AccountName != "" {
-		result.Actions, err = cs.getAccountHistory(args.AccountName, 0, 0, r)//TODO: filter by action data
+		result.Actions, err = cs.getAccountHistory(args.AccountName, 0, 10000, r, dataFilter)
 		if err != nil {
 			return result, &error_result.ErrorResult{Code:500, Message:err.Error()}
 		}
@@ -281,7 +281,7 @@ func (cs *CassandraStorage) FindActions(args storage.FindActionsArgs) (storage.F
 
 
 //getAccountHistory is a handler for get_actions request with pos != -1
-func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count int64, timeRange Range) ([]storage.Action, error) {
+func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count int64, timeRange Range, dataFilter *DataFilter) ([]storage.Action, error) {
 	result := make([]storage.Action, 0)
 	order := true
 	shardRecords, err := cs.getAccountShards(account, timeRange, order, countShards(pos, count, order))
@@ -336,16 +336,18 @@ func (cs *CassandraStorage) getAccountHistory(account string, pos int64, count i
 			continue
 		}
 
-		bytes, err := json.Marshal(doc)
-		if err != nil {
-			log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
-			continue
+		if dataFilter == nil || dataFilter.IsOk(*doc) {
+			bytes, err := json.Marshal(doc)
+			if err != nil {
+				log.Println(fmt.Sprintf("Failed to encode trace %d. Error: %s", aat.GlobalSeq, err.Error()))
+				continue
+			}
+			accountActionSeq := uint64(pos) + uint64(i)
+			action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: &accountActionSeq,
+				BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
+				ActionTrace: bytes }
+			result = append(result, action)
 		}
-		accountActionSeq := uint64(pos) + uint64(i)
-		action := storage.Action{ GlobalActionSeq: doc.Receipt["global_sequence"], AccountActionSeq: &accountActionSeq,
-			BlockNum: doc.BlockNum, BlockTime: doc.BlockTime,
-			ActionTrace: bytes }
-		result = append(result, action)
 	}
 	if len(result) != len(accountActionTraces) {
 		log.Println("Warning! Missing traces")
