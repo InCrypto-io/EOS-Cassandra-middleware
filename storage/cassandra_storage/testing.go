@@ -7,8 +7,10 @@ const (
 	TestCassandraAddress  = "127.0.0.1"
 	TestCassandraKeyspace = "test_eos_history"
 
-	TemplateInsertAccountActionTrace = "INSERT INTO account_action_trace (account_name, shard_id, global_seq, block_time) VALUES('%s', '%s', %d, '%s')"
-	TemplateUpdateLib                = "UPDATE lib SET block_num=%d where part_key=0"
+	TemplateInsertAccountActionTrace      = "INSERT INTO account_action_trace (account_name, shard_id, global_seq, block_time) VALUES('%s', '%s', %d, '%s')"
+	TemplateInsertAccountActionTraceShard = "INSERT INTO account_action_trace_shard (account_name, shard_id) VALUES('%s', '%s')"
+	TemplateInsertActionTrace             = "INSERT INTO action_trace (global_seq, doc) VALUES(%d, '%s')"
+	TemplateUpdateLib                     = "UPDATE lib SET block_num=%d where part_key=0"
 )
 
 
