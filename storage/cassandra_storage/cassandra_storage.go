@@ -577,7 +577,7 @@ func (cs *CassandraStorage) getActionTraces(globalSequences []uint64) ([]ActionT
 
 func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange, dataFilter *DataFilter) ([]storage.Action, error) {
 	result := make([]storage.Action, 0)
-	filtered := 0
+	processed := 0
 	startDate, _ := time.Parse("2006-01-02", EosStartDate)
 	endDate := time.Now()
 	if timeRange.Start != nil {
@@ -597,6 +597,15 @@ func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange, data
 		dateActionTraces, err := cs.getDateActionTraces(date, timeRange)
 		if err != nil {
 			return result, nil
+		}
+		remain := MaxResultTraces - processed
+		if remain <= 0 {
+			return result, nil
+		}
+		processed += len(dateActionTraces)
+		fmt.Println("Remain: ", remain)
+		if remain < len(dateActionTraces) {
+			dateActionTraces = dateActionTraces[:remain]
 		}
 		globalSequences := make([]uint64, 0)
 		lastGlobalSeq := uint64(0)
@@ -654,14 +663,8 @@ func (cs *CassandraStorage) getActionTracesByDate(timeRange TimestampRange, data
 				if len(result) >= MaxResultTraces {
 					return result, nil
 				}
-			} else {
-				filtered += 1
 			}
 		}
-		if (len(result) + filtered) != len(dateActionTraces) {
-			log.Println("Warning! Missing traces")
-		}
-
 		startDate = startDate.AddDate(0, 0, 1)
 	}
 	return result, nil
@@ -727,7 +730,7 @@ func (cs *CassandraStorage) getDateActionTraces(date string, blockTimeRange Rang
 	if !blockTimeRange.IsEmpty() {
 		rangeStr += "AND " + blockTimeRange.Format("block_time")
 	}
-	query := fmt.Sprintf("SELECT * FROM %s WHERE block_date='%s' %s", TableDateActionTrace, date, rangeStr)
+	query := fmt.Sprintf("SELECT * FROM %s WHERE block_date='%s' %s LIMIT %d", TableDateActionTrace, date, rangeStr, MaxResultTraces)
 	fmt.Println("Query: ", query)
 	var r DateActionTraceRecord
 	iter := cs.Session.Query(query).Iter()
