@@ -133,12 +133,11 @@ func (cs *CassandraStorage) GetTransaction(args storage.GetTransactionArgs) (sto
 	if transaction == nil || transactionTrace == nil {
 		return result, &error_result.ErrorResult{Code:404, Message:"Not found"}
 	}
-	expandedTraces := make([]*ActionTraceDoc, 0)
 	for _, t := range transactionTrace.Doc.ActionTraces {
-		expandedTraces = append(expandedTraces, t.ExpandTraces()...)
-	}
-	for _, t := range expandedTraces {
-		result.Traces = append(result.Traces, *t)
+		expandedTraces := t.ExpandTraces()
+		for _, expanded := range expandedTraces {
+			result.Traces = append(result.Traces, *expanded)
+		}
 	}
 	result.ID = transaction.ID
 	result.BlockNum = transactionTrace.Doc.BlockNum
